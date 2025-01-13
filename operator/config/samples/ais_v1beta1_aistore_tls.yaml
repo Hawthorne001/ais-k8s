@@ -15,6 +15,8 @@ spec:
   secretName: ca-root-secret
   isCA: true
   commonName: selfsigned-ca
+  duration: 8760h
+  renewBefore: 720h
   privateKey:
     algorithm: RSA
     encoding: PKCS1
@@ -69,12 +71,14 @@ spec:
   size: 1
   proxySpec:
     servicePort: 51080
+    hostPort: 51080
     portPublic: 51080
     portIntraControl: 51082
     portIntraData: 51083
 
   targetSpec:
     servicePort: 51081
+    hostPort: 51081
     portPublic: 51081
     portIntraControl: 51082
     portIntraData: 51083
@@ -99,8 +103,8 @@ spec:
         client_ca_tls: "/var/certs/ca.crt"
         client_auth_tls: 0
 
-  nodeImage: "aistorage/aisnode:v3.23"
-  initImage: "aistorage/ais-init:v3.23"
+  nodeImage: "aistorage/aisnode:v3.25"
+  initImage: "aistorage/ais-init:v3.25"
   hostpathPrefix: "/etc/ais"
   logsDir: "/var/log/ais"
   tlsSecretName: "tls-certs"

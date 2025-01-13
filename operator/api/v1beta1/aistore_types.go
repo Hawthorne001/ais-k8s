@@ -5,8 +5,13 @@
 package v1beta1
 
 import (
+	"fmt"
+	"strings"
+
 	aisapc "github.com/NVIDIA/aistore/api/apc"
+	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,40 +19,67 @@ import (
 )
 
 type (
-	ClusterCondition string
-	ErrorReason      string
+	// ClusterState represents the various states a cluster can be in during its
+	// lifecycle, such as Created, Ready, or ShuttingDown.
+	ClusterState string
+	// ClusterConditionType is a valid value for Condition.Type
+	ClusterConditionType string
+	// ClusterConditionReason is a valid value for Condition.Reason
+	ClusterConditionReason string
 )
 
+// Cluster state constants represent various stages in the cluster lifecycle.
 const (
-	ConditionInitialized           ClusterCondition = "Initialized"
-	ConditionInitializingLBService ClusterCondition = "InitializingLoadBalancerService"
-	ConditionPendingLBService      ClusterCondition = "PendingLoadBalancerService"
-	ConditionFailed                ClusterCondition = "Failed"
-	ConditionCreated               ClusterCondition = "Created"
-	ConditionReady                 ClusterCondition = "Ready"
-	ConditionUpgrading             ClusterCondition = "Upgrading"
-	// TODO: Add more states, eg. Terminating etc.
+	// ClusterInitialized indicates the cluster is initialized but not yet provisioned.
+	ClusterInitialized ClusterState = "Initialized"
+	// ClusterCreated means the cluster is created with basic resources but not yet fully operational.
+	ClusterCreated ClusterState = "Created"
+	// ClusterReady indicates the cluster is fully operational and ready for workloads.
+	ClusterReady ClusterState = "Ready"
+	// ClusterInitializingLBService means the cluster is setting up the load-balancer service.
+	ClusterInitializingLBService ClusterState = "InitializingLoadBalancerService"
+	// ClusterPendingLBService indicates the cluster is waiting for the load-balancer to become operational.
+	ClusterPendingLBService ClusterState = "PendingLoadBalancerService"
+	// ClusterUpgrading signifies the cluster is undergoing an upgrade process.
+	ClusterUpgrading ClusterState = "Upgrading"
+	// ClusterScaling indicates the cluster is adjusting its resources (up or down).
+	ClusterScaling ClusterState = "Scaling"
+	// ClusterShuttingDown means the cluster is in the process of shutting down.
+	ClusterShuttingDown ClusterState = "ShuttingDown"
+	// ClusterShutdown indicates the cluster is fully shut down and not operational.
+	ClusterShutdown ClusterState = "Shutdown"
+	// ClusterDecommissioning means the cluster is being dismantled and resources are being reclaimed.
+	ClusterDecommissioning ClusterState = "Decommissioning"
+	// ClusterCleanup indicates the cluster is cleaning up residual resources.
+	ClusterCleanup ClusterState = "CleaningResources"
+	// HostCleanup indicates jobs are running to clean up the hosts, e.g. hostpath state mounts.
+	HostCleanup ClusterState = "HostCleanup"
+	// ClusterFinalized indicates the cluster is fully decommissioned and cleaned up
+	ClusterFinalized ClusterState = "Finalized"
+)
 
-	// Condition types
-	ReconcilerError         string = "ReconcilerError"
-	ReconcilerSuccess       string = "ReconcilerSuccess"
-	ReconcilerSuccessReason string = "LastReconcileCycleSucceded"
+// These are built-in cluster conditions.
+// Applications can define custom conditions as needed.
+const (
+	// ConditionInitialized indicates the cluster has been initialized.
+	ConditionInitialized ClusterConditionType = "Initialized"
+	// ConditionCreated means the cluster has been successfully created.
+	ConditionCreated ClusterConditionType = "Created"
+	// ConditionReady indicates the cluster is fully operational and ready for use.
+	ConditionReady ClusterConditionType = "Ready"
+	// ConditionReadyRebalance indicates whether the cluster should allow rebalance as determined by spec or default config.
+	ConditionReadyRebalance ClusterConditionType = "ReadyRebalance"
+)
 
-	// ErrorReason
-	ReasonUnknown         ErrorReason = "Unknown"
-	IncompatibleSpecError ErrorReason = "IncompatibleSpecError"
-	RBACManagementError   ErrorReason = "RBACError"
-	ProxyCreationError    ErrorReason = "ProxyCreationError"
-	TargetCreationError   ErrorReason = "TargetCreationError"
-	InstanceDeletionError ErrorReason = "InstanceDeletionError"
-	ConfigChangeError     ErrorReason = "ConfigChangeError"
-	ConfigBuildError      ErrorReason = "ConfigBuildError"
-	OwnerReferenceError   ErrorReason = "OwnerReferenceError"
-	ExternalServiceError  ErrorReason = "ExternalService"
-	ResourceCreationError ErrorReason = "ResourceCreationError"
-	ResourceFetchError    ErrorReason = "ResouceFetchError" // failed to fetch a resource using K8s API
-	ResourceUpdateError   ErrorReason = "ResourceUpdateError"
+// These are reasons for a AIStore's transition to a condition.
+const (
+	ReasonUpgrading ClusterConditionReason = "Upgrading"
+	ReasonScaling   ClusterConditionReason = "Scaling"
+	ReasonShutdown  ClusterConditionReason = "Shutdown"
+)
 
+// Helper constants.
+const (
 	defaultClusterDomain = "cluster.local"
 )
 
@@ -55,15 +87,28 @@ const (
 // IMPORTANT: Run "make" to regenerate code after modifying this file
 
 // AIStoreSpec defines the desired state of AIStore
+// +kubebuilder:validation:XValidation:rule="(has(self.targetSpec.size) && has(self.proxySpec.size)) || (has(self.size) && self.size > 0)",message="Invalid cluster size, it is either not specified or value is not valid"
 type AIStoreSpec struct {
 	// Size of the cluster i.e. number of proxies and number of targets.
 	// This can be changed by specifying size in either `proxySpec` or `targetSpec`.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
-	Size           *int32          `json:"size"`
-	NodeImage      string          `json:"nodeImage"` // docker image of aisnode
-	InitImage      string          `json:"initImage"` // init image for nodes
-	HostpathPrefix string          `json:"hostpathPrefix"`
-	ConfigToUpdate *ConfigToUpdate `json:"configToUpdate,omitempty"`
+	Size *int32 `json:"size,omitempty"`
+	// Container image used for `aisnode` container.
+	// +kubebuilder:validation:MinLength=1
+	NodeImage string `json:"nodeImage"`
+	// Container image used for `ais-init` container.
+	// +kubebuilder:validation:MinLength=1
+	InitImage string `json:"initImage"`
+	// Deprecated: use StateStorageClass
+	// See docs/state_storage.md
+	// Path on host used for state
+	// +optional
+	HostpathPrefix *string `json:"hostpathPrefix,omitempty"`
+	// Used for creating dynamic volumes for storing state
+	// +optional
+	StateStorageClass *string         `json:"stateStorageClass,omitempty"`
+	ConfigToUpdate    *ConfigToUpdate `json:"configToUpdate,omitempty"`
 	// Map of primary host to comma-separated string of all hosts for multi-home
 	// +optional
 	HostnameMap map[string]string `json:"hostnameMap,omitempty"`
@@ -71,8 +116,10 @@ type AIStoreSpec struct {
 	// +optional
 	NetAttachment *string `json:"networkAttachment,omitempty"`
 
-	ProxySpec  DaemonSpec `json:"proxySpec"`  // spec for proxy
-	TargetSpec TargetSpec `json:"targetSpec"` // spec for target
+	// Proxy deployment specification.
+	ProxySpec DaemonSpec `json:"proxySpec"`
+	// Target deployment specification.
+	TargetSpec TargetSpec `json:"targetSpec"`
 
 	// ShutdownCluster can be set true if the desired state of the cluster is shutdown with a future restart expected
 	// When enabled, the operator will gracefully shut down the AIS cluster and scale cluster size to 0
@@ -80,12 +127,20 @@ type AIStoreSpec struct {
 	// +optional
 	ShutdownCluster *bool `json:"shutdownCluster,omitempty"`
 
+	// CleanupMetadata determines whether to clean up cluster and bucket metadata when the cluster is decommissioned.
+	// When enabled, the cluster will fully decommission, removing metadata and optionally deleting user data.
+	// When disabled, the operator will call the AIS shutdown API to preserve metadata before deleting other k8s resources.
+	// The metadata stored in the state PVCs will be preserved to be usable in a future AIS deployment.
+	// +optional
+	CleanupMetadata *bool `json:"cleanupMetadata,omitempty"`
+
 	// CleanupData determines whether to clean up PVCs and user data (including buckets and objects) when the cluster is decommissioned.
 	// The reclamation of PVs linked to the PVCs depends on the PV reclaim policy or the default policy of the associated StorageClass.
 	// This field is relevant only if you are deleting the CR (leading to decommissioning of the cluster).
 	// +optional
 	CleanupData *bool `json:"cleanupData,omitempty"`
 
+	// Deprecated: Defaults to true
 	// Defines if AIS daemons should expose prometheus metrics
 	// +optional
 	EnablePromExporter *bool `json:"enablePromExporter,omitempty"`
@@ -110,6 +165,17 @@ type AIStoreSpec struct {
 	// +optional
 	TLSSecretName *string `json:"tlsSecretName,omitempty"`
 
+	// Secret name containing OTEL trace-exporter token.
+	TracingTokenSecretName *string `json:"tracingTokenSecretName,omitempty"`
+
+	// Name of Cert Manager CSI Issuer used for getting the cert/key
+	// +optional
+	TLSCertManagerIssuerName *string `json:"tlsCertManagerIssuerName,omitempty"`
+
+	// Secret name containing AuthN's JWT signing key
+	// +optional
+	AuthNSecretName *string `json:"authNSecretName,omitempty"`
+
 	// ImagePullScerets is an optional list of references to secrets in the same namespace to pull container images of AIS Daemons
 	// More info: https://kubernetes.io/docs/concepts/containers/images#specifying-imagepullsecrets-on-a-pod
 	// +optional
@@ -126,17 +192,20 @@ type AIStoreSpec struct {
 
 // AIStoreStatus defines the observed state of AIStore
 type AIStoreStatus struct {
+	// The state of a AIStore is a simple, high-level summary of where the cluster is in its lifecycle.
+	// The conditions array field contain more detail about the cluster's status.
+	// +optional
+	State ClusterState `json:"state"`
 	// Represents the observations of a AIStores's current state.
-	// Known .status.conditions.type are: "Initialized", "Created", and "Ready"
+	// Known condition types are: "Initialized", "Created", and "Ready".
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions"`
+	// Deprecated: this field is no longer used.
 	// +optional
-	State ClusterCondition `json:"state"`
-	// +optional
-	ConsecutiveErrorCount int `json:"consecutive_error_count"` // number of times an error occurred
+	ConsecutiveErrorCount int `json:"consecutive_error_count,omitempty"`
 }
 
 // ServiceSpec defines the specs of AIS Gateways
@@ -156,12 +225,28 @@ type DaemonSpec struct {
 
 	// Size holds number of AIS Daemon (proxy/target) replicas.
 	// Overrides value present in `AIStore` spec.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
-	Size *int32 `json:"size"`
+	Size *int32 `json:"size,omitempty"`
 
-	// ContainerSecurity holds the secrity context for AIS Daemon containers.
+	// Annotations holds pod annotations for AIStore daemon pods.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Compute Resources required by AIStore daemon pods.
+	// More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// ContainerSecurity holds the security context for AIS Daemon containers.
 	// +optional
 	ContainerSecurity *corev1.SecurityContext `json:"capabilities,omitempty"`
+
+	// List of additional environment variables to set in the AIS Daemon container.
+	// Overrides any default envs set by operator.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
 	// Affinity  - AIS Daemon pod's scheduling constraints
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
@@ -208,7 +293,10 @@ type Mount struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// AIStore is the Schema for the aistores API
+// AIStore is the Schema for the aistores API.
+//
+// +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.state",description="The current state of the resource"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type AIStore struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -218,129 +306,53 @@ type AIStore struct {
 }
 
 // AddOrUpdateCondition is used to add a new/update an existing condition type.
-func (ais *AIStore) AddOrUpdateCondition(c metav1.Condition) {
-	c.LastTransitionTime = metav1.Now()
+func (ais *AIStore) AddOrUpdateCondition(c *metav1.Condition) {
 	c.ObservedGeneration = ais.GetGeneration()
-	for i, condition := range ais.Status.Conditions {
-		if c.Type == condition.Type {
-			ais.Status.Conditions[i] = c
-			return
-		}
-	}
-	ais.Status.Conditions = append(ais.Status.Conditions, c)
+	meta.SetStatusCondition(&ais.Status.Conditions, *c)
 }
 
-// GetLastCondition returns the last condition based on the condition timestamp.
-// Return false if no condition is present.
-func (ais *AIStore) GetLastCondition() (latest metav1.Condition, exists bool) {
-	if len(ais.Status.Conditions) == 0 {
-		return
-	}
-	exists = true
-	latest = ais.Status.Conditions[0]
-	lastTime := latest.LastTransitionTime
-	for i, condition := range ais.Status.Conditions {
-		if i == 0 {
-			continue
-		}
-		if lastTime.Before(&condition.LastTransitionTime) {
-			latest = condition
-			lastTime = condition.LastTransitionTime
-		}
-	}
-	return
+func (ais *AIStore) IsConditionTrue(conditionType ClusterConditionType) bool {
+	return meta.IsStatusConditionTrue(ais.Status.Conditions, string(conditionType))
 }
 
-// SetConditionInitialized add a new condition type `Initialized` and sets it to `True`
-func (ais *AIStore) SetConditionInitialized() {
-	ais.AddOrUpdateCondition(metav1.Condition{
-		Type:    ConditionInitialized.Str(),
+// SetCondition add a new condition and sets it to `True`.
+func (ais *AIStore) SetCondition(conditionType ClusterConditionType) {
+	var msg string
+	switch conditionType {
+	case ConditionInitialized:
+		msg = "Success initializing cluster"
+	case ConditionCreated:
+		msg = "Success creating AIS cluster"
+	case ConditionReady:
+		msg = "Cluster is ready"
+	case ConditionReadyRebalance:
+		msg = "Cluster is ready to rebalance"
+	}
+	ais.AddOrUpdateCondition(&metav1.Condition{
+		Type:    string(conditionType),
 		Status:  metav1.ConditionTrue,
-		Reason:  ConditionInitialized.Str(),
-		Message: "Success initializing cluster",
+		Reason:  string(conditionType),
+		Message: msg,
 	})
 }
 
-// SetConditionCreated add a new condition type `Created` and sets it to `True`
-func (ais *AIStore) SetConditionCreated() {
-	ais.AddOrUpdateCondition(metav1.Condition{
-		Type:    ConditionCreated.Str(),
-		Status:  metav1.ConditionTrue,
-		Reason:  ConditionCreated.Str(),
-		Message: "Success creating AIS cluster",
-	})
-}
-
-// SetConditionReady add a new condition type `Ready` and sets it to `True`
-func (ais *AIStore) SetConditionReady() {
-	ais.AddOrUpdateCondition(metav1.Condition{
-		Type:    ConditionReady.Str(),
-		Status:  metav1.ConditionTrue,
-		Reason:  ConditionReady.Str(),
-		Message: "Cluster is ready",
-	})
-}
-
-// UnsetConditionReady add/updates condition setting type `Ready` to `False`
-// reason - tag why the condition is being set to `False`.
-// message - a human readable message indicating details about state change.
-func (ais *AIStore) UnsetConditionReady(reason, message string) {
-	ais.AddOrUpdateCondition(metav1.Condition{
-		Type:    ConditionReady.Str(),
+// SetConditionFalse updates the given condition's status to `False`
+//   - `reason` - tag why the condition is being set to `False`.
+//   - `msg` - a human-readable message indicating details about state change.
+func (ais *AIStore) SetConditionFalse(conditionType ClusterConditionType, reason ClusterConditionReason, msg string) {
+	ais.AddOrUpdateCondition(&metav1.Condition{
+		Type:    string(conditionType),
 		Status:  metav1.ConditionFalse,
-		Reason:  reason,
-		Message: message,
+		Reason:  string(reason),
+		Message: msg,
 	})
 }
 
-// SetConditionError sets records error occurred in reconciler loop
-func (ais *AIStore) SetConditionError(reason ErrorReason, err error) {
-	if err == nil {
-		return
-	}
-	ais.AddOrUpdateCondition(metav1.Condition{
-		Type:    ReconcilerError,
-		Status:  metav1.ConditionTrue,
-		Reason:  reason.Str(),
-		Message: err.Error(),
-	})
-}
-
-func (ais *AIStore) IncErrorCount()   { ais.Status.ConsecutiveErrorCount++ }
-func (ais *AIStore) ResetErrorCount() { ais.Status.ConsecutiveErrorCount = 0 }
-func (ais *AIStore) SetConditionSuccess() {
-	ais.Status.ConsecutiveErrorCount = 0
-	ais.AddOrUpdateCondition(metav1.Condition{
-		Type:   ReconcilerSuccess,
-		Status: metav1.ConditionTrue,
-		Reason: ReconcilerSuccessReason,
-	})
-}
-
-func (ais *AIStore) getCondition(conditionType string) (metav1.Condition, bool) {
-	for _, condition := range ais.Status.Conditions {
-		if condition.Type == conditionType {
-			return condition, true
-		}
-	}
-	return metav1.Condition{}, false
-}
-
-// IsConditionTrue checks if the `Status` for given type is set to true
-func (ais *AIStore) IsConditionTrue(conditionType string) (isTrue bool) {
-	condition, ok := ais.getCondition(conditionType)
-	if !ok {
-		return
-	}
-	isTrue = condition.Status == metav1.ConditionTrue
-	return
-}
-
-func (ais *AIStore) SetState(state ClusterCondition) {
+func (ais *AIStore) SetState(state ClusterState) {
 	ais.Status.State = state
 }
 
-func (ais *AIStore) HasState(state ClusterCondition) bool {
+func (ais *AIStore) HasState(state ClusterState) bool {
 	return ais.Status.State == state
 }
 
@@ -380,8 +392,60 @@ func (ais *AIStore) GetTargetSize() int32 {
 	return *ais.Spec.Size
 }
 
-func (ais *AIStore) ShouldShutdown() bool {
+func (ais *AIStore) GetDefaultProxyURL() string {
+	scheme := "http"
+	if ais.UseHTTPS() {
+		scheme = "https"
+	}
+	primaryProxy := ais.DefaultPrimaryName()
+	domain := ais.GetClusterDomain()
+	svcName := ais.ProxyStatefulSetName()
+	intraCtrlPort := ais.Spec.ProxySpec.IntraControlPort.String()
+	// Example: http://ais-proxy-0.ais-proxy.ais.svc.cluster.local:51080
+	return fmt.Sprintf("%s://%s.%s.%s.svc.%s:%s", scheme, primaryProxy, svcName, ais.Namespace, domain, intraCtrlPort)
+}
+
+func (ais *AIStore) ShouldStartShutdown() bool {
+	return ais.ShouldBeShutdown() && ais.HasState(ClusterReady)
+}
+
+func (ais *AIStore) ShouldBeShutdown() bool {
 	return ais.Spec.ShutdownCluster != nil && *ais.Spec.ShutdownCluster
+}
+
+func (ais *AIStore) UseHostNetwork() bool {
+	return ais.Spec.TargetSpec.HostNetwork != nil && *ais.Spec.TargetSpec.HostNetwork
+}
+
+func (ais *AIStore) GetTargetDNSPolicy() corev1.DNSPolicy {
+	if ais.UseHostNetwork() {
+		return corev1.DNSClusterFirstWithHostNet
+	}
+	return corev1.DNSClusterFirst
+}
+
+// ShouldDecommission Determines if we should begin decommissioning the cluster
+func (ais *AIStore) ShouldDecommission() bool {
+	// We should only begin decommissioning if
+	// 1. CR is marked for deletion
+	// 2. We aren't already in the decommission or final cleanup stages
+	return !ais.IsDecommissioningOrCleaning() && ais.IsMarkedForDeletion()
+}
+
+func (ais *AIStore) IsDecommissioningOrCleaning() bool {
+	return ais.HasState(ClusterDecommissioning) ||
+		ais.HasState(ClusterCleanup) ||
+		ais.HasState(HostCleanup) ||
+		ais.HasState(ClusterFinalized)
+}
+
+func (ais *AIStore) IsMarkedForDeletion() bool {
+	return !ais.GetDeletionTimestamp().IsZero()
+}
+
+// ShouldCleanupMetadata Determines if we are doing a full decommission -- unrecoverable, including metadata
+func (ais *AIStore) ShouldCleanupMetadata() bool {
+	return ais.Spec.CleanupMetadata != nil && *ais.Spec.CleanupMetadata
 }
 
 func (ais *AIStore) AllowTargetSharedNodes() bool {
@@ -390,6 +454,26 @@ func (ais *AIStore) AllowTargetSharedNodes() bool {
 	deprecatedAllow := ais.Spec.DisablePodAntiAffinity != nil && *ais.Spec.DisablePodAntiAffinity
 	// Backwards compatible check -- allow if either is true
 	return allowSharedNodes || deprecatedAllow
+}
+
+// CompareVersion returns true if the spec `aisnode` version is the same or newer than the one provided
+func (ais *AIStore) CompareVersion(version string) (bool, error) {
+	img := ais.Spec.NodeImage
+	parts := strings.Split(img, ":")
+	if len(parts) != 2 {
+		return false, fmt.Errorf("image does not have a proper tag: %q", img)
+	}
+	// Allow for hyphen-separated tags, e.g. aisnode:v3.24-rc3
+	tag := strings.Split(parts[1], "-")[0]
+	if !semver.IsValid(tag) {
+		return false, fmt.Errorf("image tag does not use semantic versioning, image: %q", img)
+	}
+	// Check version is at least the provided version
+	return semver.Compare(tag, version) >= 0, nil
+}
+
+func (ais *AIStore) UseHTTPS() bool {
+	return ais.Spec.ConfigToUpdate != nil && ais.Spec.ConfigToUpdate.Net != nil && ais.Spec.ConfigToUpdate.Net.HTTP != nil && ais.Spec.ConfigToUpdate.Net.HTTP.UseHTTPS != nil && *ais.Spec.ConfigToUpdate.Net.HTTP.UseHTTPS
 }
 
 // +kubebuilder:object:root=true
@@ -403,24 +487,4 @@ type AIStoreList struct {
 
 func init() {
 	SchemeBuilder.Register(&AIStore{}, &AIStoreList{})
-}
-
-////////////////////////
-//    ErrorReason     //
-///////////////////////
-
-func (e ErrorReason) Equals(value string) bool {
-	return string(e) == value
-}
-
-func (e ErrorReason) Str() string {
-	return string(e)
-}
-
-/////////////////////////////////
-//     ClusterCondition       //
-///////////////////////////////
-
-func (c ClusterCondition) Str() string {
-	return string(c)
 }

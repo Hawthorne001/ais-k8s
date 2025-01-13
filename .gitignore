@@ -1,15 +1,10 @@
-*.backup
-*.tfstate*
-*/**/.terraform/
-*.hcl
-
 *.tgz
 *.lock
 *.state
 *.swp
 *.vscode
-.DS_Store
 .idea
+*.env
 
 *ansible.cfg
 
@@ -19,4 +14,9 @@
 bundle.Dockerfile
 bundle/
 dist/
-index.yaml
+
+# Allow all files in github pages directory
+!/pages/**
+
+# Exceptions to still ignore in pages/ 
+**/.DS_Store

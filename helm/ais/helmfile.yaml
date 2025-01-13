@@ -1,0 +1,76 @@
+environments: 
+  default:
+    values:
+    - https:
+        enabled: false
+  sjc11:
+    values: 
+    - https:
+        enabled: true
+    # Only controls secret creation, update ais config "cloud" to use 
+    - cloud-secrets:
+        enabled: true
+    kubeContext: sjc11
+  oci-iad:
+    values: 
+    - https:
+        enabled: false
+    kubeContext: oci-iad
+  oci-iad-test:
+    values: 
+    - https:
+        enabled: false
+    kubeContext: oci-iad-test
+---
+
+releases:
+  # Defines a self-signed issuer for acquiring a tls cert
+  - name: ais-tls-issuer
+    namespace: ais
+    createNamespace: true
+    chart: charts/tls-issuer
+    version: 0.1.0
+    condition: https.enabled
+    values:
+      - "./config/tls-issuer/{{ .Environment.Name }}.yaml"
+
+  # Acquires a tls cert from the specified issuer and stores in a secret for AIS
+  - name: ais-tls-cert
+    namespace: ais
+    createNamespace: true
+    chart: charts/tls-cert
+    version: 0.1.0
+    condition: https.enabled
+    needs:
+      - ais-tls-issuer
+    values:
+      - "./config/tls-cert/{{ .Environment.Name }}.yaml"
+      - "./config/ais/{{ .Environment.Name }}.yaml"
+
+  # Sets up cloud secrets for AIS pods to mount and use for accessing remote backends
+  - name: ais-cloud-secrets
+    namespace: ais
+    createNamespace: true
+    chart: charts/cloud-secrets
+    version: 0.1.0
+    condition: cloud-secrets.enabled
+    values:
+      - "./config/cloud/{{ .Environment.Name }}.yaml.gotmpl"
+      - "./config/ais/{{ .Environment.Name }}.yaml"
+
+  - name: ais-cluster
+    namespace: ais
+    createNamespace: true
+    chart: charts/ais-cluster
+    version: 0.1.0
+    values:
+      - "./config/ais/{{ .Environment.Name }}.yaml"
+    # Install pre-req local-path-provisioner to the cluster
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args:
+          - "apply"
+          - "-f"
+          - "https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml"

@@ -6,9 +6,11 @@ package tutils
 
 import (
 	"context"
+	"fmt"
+	"path"
 	"strconv"
 
-	"github.com/NVIDIA/aistore/api/apc"
+	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/v1beta1"
 	aisclient "github.com/ais-operator/pkg/client"
 	corev1 "k8s.io/api/core/v1"
@@ -19,87 +21,111 @@ import (
 
 // TODO: Should be provided from test config.
 const (
-	aisNodeImage = "aistorage/aisnode:v3.23"
-	aisInitImage = "aistorage/ais-init:v3.23"
+	DefaultNodeImage  = "aistorage/aisnode:v3.25"
+	DefaultInitImage  = "aistorage/ais-init:v3.25"
+	PreviousNodeImage = "aistorage/aisnode:v3.24"
 )
 
 type (
 	ClusterSpecArgs struct {
-		Name                string
-		Namespace           string
-		StorageClass        string
-		Size                int32
-		TargetSize          int32
-		ProxySize           int32
-		DisableAntiAffinity bool
-		EnableExternalLB    bool
-		ShutdownCluster     bool
-		CleanupData         bool
+		Name             string
+		Namespace        string
+		StorageClass     string
+		Size             int32
+		TargetSize       int32
+		ProxySize        int32
+		NodeImage        string
+		InitImage        string
+		TargetSharedNode bool
+		EnableExternalLB bool
+		ShutdownCluster  bool
+		CleanupMetadata  bool
+		CleanupData      bool
 		// Create a cluster with more PVs than targets for future scaling
-		MaxPVs int32
+		MaxTargets int32
+		// Where to mount the hostpath storage for actual storage PVs
+		StorageHostPath string
 		// For testing deprecated feature
 		AllowSharedOrNoDisks bool
 	}
 )
 
-func NewAISCluster(args ClusterSpecArgs, client *aisclient.K8sClient) (*aisv1.AIStore, []*corev1.PersistentVolume) {
-	var (
-		storage *string
-		pvNum   int
-	)
-	if args.StorageClass != "" {
-		storage = &args.StorageClass
-	}
+func NewAISCluster(args *ClusterSpecArgs, client *aisclient.K8sClient) (*aisv1.AIStore, []*corev1.PersistentVolume) {
+	mounts := defineMounts(args)
+	pvs := createStoragePVs(args, client, mounts)
+	return newAISClusterCR(args, mounts), pvs
+}
 
-	if args.MaxPVs != 0 {
-		pvNum = int(args.MaxPVs)
-	} else {
+func createStoragePVs(args *ClusterSpecArgs, client *aisclient.K8sClient, mounts []aisv1.Mount) []*corev1.PersistentVolume {
+	targetNum := int(args.MaxTargets)
+	if targetNum == 0 {
 		if args.TargetSize != 0 {
-			pvNum = int(args.TargetSize)
+			targetNum = int(args.TargetSize)
 		} else {
-			pvNum = int(args.Size)
+			targetNum = int(args.Size)
 		}
 	}
 
-	mounts := defineMounts(storage, !args.AllowSharedOrNoDisks)
+	pvs := make([]*corev1.PersistentVolume, 0, len(mounts)*targetNum)
 
-	pvs := make([]*corev1.PersistentVolume, 0, len(mounts)*pvNum)
-
-	for i := 0; i < pvNum; i++ {
+	for i := range targetNum {
 		for _, mount := range mounts {
+			var k8sNodeName string
+			if args.TargetSharedNode {
+				k8sNodeName = "minikube"
+			} else {
+				k8sNodeName = determineNode("minikube", "%s-m%02d", i)
+			}
 			pvData := PVData{
-				storageClass: *storage,
+				storageClass: args.StorageClass,
 				ns:           args.Namespace,
 				cluster:      args.Name,
 				mpath:        mount.Path,
+				node:         k8sNodeName,
 				target:       "target-" + strconv.Itoa(i),
 				size:         mount.Size,
 			}
 			// Create required PVs
-			pv, err := CreatePV(context.Background(), client, &pvData)
-			if err == nil {
+			if pv, err := CreatePV(context.Background(), client, &pvData); err == nil {
 				pvs = append(pvs, pv)
 			}
 		}
 	}
-	return newAISClusterCR(args, mounts), pvs
+	return pvs
 }
 
-func defineMounts(storage *string, useLabels bool) []aisv1.Mount {
-	mpathLabel := "disk1"
+// Determine the hostname of the node for PV affinity.
+// Targets will bind to specific PVs so in a multi-node multi-target test we must define the PVs on separate nodes
+// By default, a minikube multi-node cluster will create nodes named minikube, minikube-m02, minikube-m03...
+func determineNode(base, format string, ordinal int) string {
+	if ordinal == 0 {
+		return base
+	}
+	// minikube node names are not zero-indexed, so increment to match target names
+	return fmt.Sprintf(format, base, ordinal+1)
+}
+
+func defineMounts(args *ClusterSpecArgs) []aisv1.Mount {
+	var storagePrefix string
+	if args.StorageHostPath == "" {
+		storagePrefix = "/etc/ais"
+	} else {
+		storagePrefix = args.StorageHostPath
+	}
 	mounts := []aisv1.Mount{
 		{
-			Path:         "/ais1",
+			Path:         path.Join(storagePrefix, "ais1"),
 			Size:         resource.MustParse("2Gi"),
-			StorageClass: storage,
+			StorageClass: &args.StorageClass,
 		},
 		{
-			Path:         "/ais2",
+			Path:         path.Join(storagePrefix, "ais2"),
 			Size:         resource.MustParse("1Gi"),
-			StorageClass: storage,
+			StorageClass: &args.StorageClass,
 		},
 	}
-	if useLabels {
+	mpathLabel := "disk1"
+	if !args.AllowSharedOrNoDisks {
 		for i := range mounts {
 			mounts[i].Label = &mpathLabel
 		}
@@ -107,15 +133,16 @@ func defineMounts(storage *string, useLabels bool) []aisv1.Mount {
 	return mounts
 }
 
-func newAISClusterCR(args ClusterSpecArgs, mounts []aisv1.Mount) *aisv1.AIStore {
+func newAISClusterCR(args *ClusterSpecArgs, mounts []aisv1.Mount) *aisv1.AIStore {
 	spec := aisv1.AIStoreSpec{
-		Size:             &args.Size,
-		ShutdownCluster:  apc.Ptr(args.ShutdownCluster),
-		CleanupData:      apc.Ptr(args.CleanupData),
-		NodeImage:        aisNodeImage,
-		InitImage:        aisInitImage,
-		HostpathPrefix:   "/etc/ais",
-		EnableExternalLB: args.EnableExternalLB,
+		Size:              &args.Size,
+		ShutdownCluster:   aisapc.Ptr(args.ShutdownCluster),
+		CleanupMetadata:   aisapc.Ptr(args.CleanupMetadata),
+		CleanupData:       aisapc.Ptr(args.CleanupData),
+		NodeImage:         args.NodeImage,
+		InitImage:         args.InitImage,
+		StateStorageClass: aisapc.Ptr("local-path"),
+		EnableExternalLB:  args.EnableExternalLB,
 		ProxySpec: aisv1.DaemonSpec{
 			ServiceSpec: aisv1.ServiceSpec{
 				ServicePort:      intstr.FromInt32(51080),
@@ -136,7 +163,7 @@ func newAISClusterCR(args ClusterSpecArgs, mounts []aisv1.Mount) *aisv1.AIStore 
 			},
 			Mounts:                 mounts,
 			AllowSharedOrNoDisks:   &args.AllowSharedOrNoDisks,
-			DisablePodAntiAffinity: &args.DisableAntiAffinity,
+			DisablePodAntiAffinity: &args.TargetSharedNode,
 		},
 	}
 

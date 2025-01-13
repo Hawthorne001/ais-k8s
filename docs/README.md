@@ -3,7 +3,7 @@
 This document provides comprehensive, step-by-step guidance for deploying [AIStore](https://github.com/NVIDIA/aistore) clusters on Kubernetes (K8s). With a little bit of planning and preparation, AIStore can be optimally deployed on K8s, so let's embark on this journey together.
 
 
-# Contents
+## Contents
 
 1. [**AIStore K8s Deployment Guide**](#aistore-k8s-deployment-guide)
 2. [**Key Points to Remember**](#key-points-to-remember)
@@ -17,15 +17,9 @@ This document provides comprehensive, step-by-step guidance for deploying [AISto
    - [AIStore Cluster Creation Process](#aistore-cluster-creation-process)
    - [Setting Up a Debugging Pod](#setting-up-a-debugging-pod)
 5. [**Post-Deployment Steps**](#post-deployment-steps)
-   - [Monitoring - Using CLI](#monitoring-using-cli)
-   - [Monitoring - Using kube-prometheus-stack](#monitoring-using-kube-prometheus-stack)
-     - [Node Labeling for Monitoring](#node-labeling-for-monitoring)
-     - [Creating a Monitoring Namespace](#creating-a-monitoring-namespace)
-     - [Deploy kube-prometheus-stack](#deploy-kube-prometheus-stack)
-     - [Configuring Prometheus (Pod) Monitors](#configuring-prometheus-pod-monitors)
-     - [Accessing Prometheus UI](#accessing-prometheus-ui)
-     - [Setting Up Grafana Dashboard](#setting-up-grafana-dashboard)
+   - [Monitoring](#monitoring)
    - [Performance Testing with aisloader](#performance-testing-with-aisloader)
+6. [**Troubleshooting Help**](#troubleshooting)
 
 ## Key Points to Remember:
 - While AIStore doesn't necessarily require K8s for deployment, using K8s significantly simplifies large, multinode deployments. We employ Ansible for this process.
@@ -37,10 +31,10 @@ This document provides comprehensive, step-by-step guidance for deploying [AISto
 Before starting the deployment, ensure the following prerequisites are met:
 
 For bare-metal deployments:
-- **Kubespray Installation**: Follow the instructions provided in this [Kubespray document]](kubespray)
+- **Kubespray Installation**: Follow the instructions provided in the [Kubespray repo](https://github.com/kubernetes-sigs/kubespray)
 
 For both bare-metal and managed K8s deployments:
-- **Kubernetes**: Version 1.27.x or later.
+- **Kubernetes**: v1.27.x or later.
 - **Operating System (OS)**: Compatible with any Linux-based OS, though Ubuntu 22.04 is preferred.
 - **Drives**:
   - AIStore's performance scales with the number and type of disks used. A separate [playbook](../playbooks/host-config/docs/ais_datafs.md) is available for disk formatting and mounting as required by AIS. We recommend NVMe drives, formatted with XFS, and mounted with specific options (no RAID setup). Mount options: noatime, nodiratime, logbufs=8, logbsize=256k, largeio, inode64, swalloc, allocsize=131072k, nobarrier.
@@ -59,25 +53,25 @@ The network setup plays a pivotal role in AIStore's performance. Here's a detail
    3. **Port Configuration**:
       The following port settings are essential for AIStore operation and need to be configured appropriately:
       - **General Requirement**:
-      - Open outbound ports 51080 and 51081 for ingress traffic to allow external access to the AIS cluster.
+        - Open outbound ports `51080` and `51081` for ingress traffic to allow external access to the AIS cluster.
       - **ProxySpec Settings**:
-      - `servicePort`: 51080 (used for general service access)
-      - `portPublic`: 51080 (public-facing port for external communication)
-      - `portIntraControl`: 51082 (internal control communication within the cluster)
-      - `portIntraData`: 51083 (data transfer within the cluster)
+        - `servicePort`: `51080` (used for general service access)
+        - `portPublic`: `51080` (public-facing port for external communication)
+        - `portIntraControl`: `51081` (internal control communication within the cluster)
+        - `portIntraData`: `51082` (data transfer within the cluster)
       - **TargetSpec Settings**:
-      - `servicePort`: 51081 (service port dedicated for target nodes)
-      - `portPublic`: 51081 (public-facing port for target nodes)
-      - `portIntraControl`: 51082 (control port for internal communication among target nodes)
-      - `portIntraData`: 51083 (data transfer port among target nodes)
+        - `servicePort`: `51081` (service port dedicated for target nodes)
+        - `portPublic`: `51081` (public-facing port for target nodes)
+        - `portIntraControl`: `51082` (control port for internal communication among target nodes)
+        - `portIntraData`: `51083` (data transfer port among target nodes)
       - **ServiceAuth**:
-      - Port `52001` is used for service authentication purposes.
+        - Port `52001` is used for service authentication purposes.
 
    Some additional information about [network](https://github.com/NVIDIA/aistore/blob/main/docs/performance.md#network).
 - **AIS Nodes**:
   - While AIStore is resource-efficient, some extensions like ETL and Resharding demand more CPU and Memory. We recommend nodes with 32 CPUs and 64 GB of Memory.
 - **Host Configuration**:
-  - Prepare an Ansible host file akin to [`hosts.ini`](kubespray/hosts.ini) for various playbook deployments.
+  - Prepare an Ansible host file for executing playbooks. We provide an [example](../playbooks/hosts-example.ini) in our playbooks directory.
 
 
 ## Deployment Steps
@@ -85,7 +79,7 @@ The network setup plays a pivotal role in AIStore's performance. Here's a detail
 ### Kubernetes Installation
 
 - **Managed K8s**: Strongly recommended for production deployments to avoid potential troubleshooting complexities.
-- **Bare-Metal K8s**: For those preferring manual setup, refer to the [`kubespray`](kubespray) documentation. Remember to specify the controller node in the `hosts.ini` file.
+- **Bare-Metal K8s**: For those preferring manual setup, refer to the [`kubespray`](https://github.com/kubernetes-sigs/kubespray) documentation.
 
 Make sure to specify the `controller` node in the `hosts.ini` file that will have the `kubectl` access to the whole cluster.
 
@@ -127,7 +121,7 @@ With Kubernetes installed and the nodes properly configured, it's time to deploy
 1. **Preparation**:
    - Begin by updating the AIS Operator's version. Modify the version specified in the [defaults file](../playbooks/ais-deployment/roles/ais_deploy_operator/defaults/main.yml) to match the latest released version. This ensures you are deploying the most up-to-date version of the operator.
 
-   **Note:** Please refer the [compatibilty matrix](COMPATIBILITY.md) for AIStore and ais-operater. We recommend and only support the latest versions for both.
+   **Note:** Please refer the [compatibility matrix](COMPATIBILITY.md) for AIStore and ais-operator. We recommend and only support the latest versions for both.
 
 2. **Building the Operator (Optional)**:
    - If you require customizations or want to incorporate specific changes to the operator, you have the option to build the operator from scratch. This step is optional and is recommended only if you need to deviate from the standard operator setup.
@@ -199,7 +193,7 @@ Before initiating the playbook, it's crucial to perform some preparatory configu
     ```
 
 - **Multihome Deployment**:
-   - For a multihome deployment using multiple network interfaces, some extra configuration is required before deploying the cluster. Refer to the [multihome deployment doc](../playbooks/ais-deployment/docs/deploy_with_multihome) for details. 
+   - For a multihome deployment using multiple network interfaces, some extra configuration is required before deploying the cluster. Refer to the [multihome deployment doc](../playbooks/ais-deployment/docs/deploy_with_multihome.md) for details. 
 
 - **Playbook Defaults**:
   - In the [defaults file](../playbooks/ais-deployment/roles/ais_deploy_cluster/defaults/main.yml) for the deploy cluster playbook, update values such as:
@@ -238,7 +232,7 @@ kubectl -n ais exec -it pods/aisnode-debug -- bash
 Inside the debug pod, set up the environment to connect to the AIStore cluster. You can do this by setting the `AIS_ENDPOINT` environment variable to the proxy's service address:
 
 ```bash
-export AIS_ENDPOINT=http://aistore-proxy:51080
+export AIS_ENDPOINT=http://ais-proxy:51080
 ```
 
 The pod comes with the `ais` [CLI (command-line interface)](https://github.com/NVIDIA/aistore/blob/main/docs/cli.md) preinstalled. You can utilize the `ais` CLI to interact with your cluster. For example, to view the cluster's status, you can run:
@@ -261,6 +255,10 @@ For guidance on monitoring your AIStore deployment, please refer to this [monito
 
 For evaluating the efficiency of your storage cluster, the load generator `aisloader` is a useful tool. Detailed information about `aisloader` is available in its [documentation](https://github.com/NVIDIA/aistore/blob/main/docs/aisloader.md). Additionally, a specialized toolkit, known as [`aisloader-composer`](https://github.com/NVIDIA/aistore/tree/main/bench/tools/aisloader-composer), has been developed which includes a variety of scripts and Ansible playbooks, enabling comprehensive benchmarking of an AIStore (AIS) cluster across multiple hosts. These hosts are equipped with `aisloader` and are collectively managed through Ansible. You can find the setup instructions for `aisloader-composer` and examples of benchmark scripts [here](https://github.com/NVIDIA/aistore/tree/main/bench/tools/aisloader-composer).
 
-Happy deploying! 🎉🚀🖥️
+## Troubleshooting
 
-If you encounter any problems during the deployment process, feel free to report them on the [AIStore repository's issues page](https://github.com/NVIDIA/aistore/issues). We welcome your feedback and queries to enhance the deployment experience.
+If you encounter any problems during the deployment process, feel free to report them on the [AIStore repository's issues page](https://github.com/NVIDIA/aistore/issues). We welcome your feedback and queries to enhance the deployment experience. 
+
+We also provide a [troubleshooting doc](troubleshooting.md) for steps to resolve some of the issues you might come across. 
+
+Happy deploying! 🎉🚀🖥️

@@ -5,43 +5,23 @@
 package cmn
 
 import (
-	aisapc "github.com/NVIDIA/aistore/api/apc"
-	aiscmn "github.com/NVIDIA/aistore/cmn"
+	"context"
+
 	aisv1 "github.com/ais-operator/api/v1beta1"
 	jsoniter "github.com/json-iterator/go"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 func globalConfigMapName(ais *aisv1.AIStore) string {
 	return ais.Name + "-global-cm"
 }
 
-func GlobalConfigMapNSName(ais *aisv1.AIStore) types.NamespacedName {
-	return types.NamespacedName{
-		Name:      globalConfigMapName(ais),
-		Namespace: ais.Namespace,
-	}
-}
-
-func NewGlobalCM(ais *aisv1.AIStore, toUpdate *aiscmn.ConfigToSet) (*corev1.ConfigMap, error) {
-	globalConf := DefaultAISConf(ais)
-	if toUpdate != nil {
-		if err := globalConf.Apply(toUpdate, aisapc.Cluster); err != nil {
-			return nil, err
-		}
-	}
-	if ais.Spec.AWSSecretName != nil || ais.Spec.GCPSecretName != nil {
-		if globalConf.Backend.Conf == nil {
-			globalConf.Backend.Conf = make(map[string]interface{}, 8)
-		}
-		if ais.Spec.AWSSecretName != nil {
-			globalConf.Backend.Conf["aws"] = aisv1.Empty{}
-		}
-		if ais.Spec.GCPSecretName != nil {
-			globalConf.Backend.Conf["gcp"] = aisv1.Empty{}
-		}
+// NewGlobalCM creates the content for the configmap mounted by AIS pods based on provided spec and cluster state.
+func NewGlobalCM(ctx context.Context, ais *aisv1.AIStore) (*corev1.ConfigMap, error) {
+	globalConf, err := GenerateGlobalConfig(ctx, ais)
+	if err != nil {
+		return nil, err
 	}
 	conf, err := jsoniter.MarshalToString(globalConf)
 	if err != nil {
@@ -53,10 +33,7 @@ func NewGlobalCM(ais *aisv1.AIStore, toUpdate *aiscmn.ConfigToSet) (*corev1.Conf
 			Namespace: ais.Namespace,
 		},
 		Data: map[string]string{
-			"ais.json":           conf,
-			"ais_liveness.sh":    livenessSh,
-			"ais_readiness.sh":   readinessSh,
-			"hostname_lookup.sh": hostnameMapSh,
+			AISGlobalConfigName: conf,
 		},
 	}
 	if ais.Spec.HostnameMap != nil {
@@ -64,7 +41,11 @@ func NewGlobalCM(ais *aisv1.AIStore, toUpdate *aiscmn.ConfigToSet) (*corev1.Conf
 		if err != nil {
 			return nil, err
 		}
-		cm.Data["hostname_map.json"] = hostnameMap
+		cm.Data[hostnameMapFileName] = hostnameMap
 	}
 	return cm, nil
+}
+
+func AISConfigMapName(ais *aisv1.AIStore, daeType string) string {
+	return ais.Name + "-" + daeType
 }

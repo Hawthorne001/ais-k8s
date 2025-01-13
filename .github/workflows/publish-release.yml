@@ -16,9 +16,9 @@ jobs:
     
     - name: Checkout Repo
       uses: actions/checkout@v2
-    - uses: actions/setup-go@v4
+    - uses: actions/setup-go@v5
       with:
-        go-version: '1.22.x'
+        go-version: '1.23.x'
     - name: Login to DockerHub
       uses: docker/login-action@v2
       with:
@@ -29,12 +29,13 @@ jobs:
       run: |
         pushd $GITHUB_WORKSPACE/operator
         IMG="${{ env.AISOPERATOR_IMAGE }}:${{ env.VERSION }}" make docker-build docker-push
+        IMG="${{ env.AISOPERATOR_IMAGE }}:latest" make docker-build docker-push
         popd
   
     - name: Make operator yaml file and helm chart
       run: |
         pushd $GITHUB_WORKSPACE/operator
-        VERSION="${{ env.VERSION }}" IMG="${{ env.AISOPERATOR_IMAGE }}:${{ env.VERSION }}" make bundle-manifests-helm
+        VERSION="${{ env.VERSION }}" IMG="${{ env.AISOPERATOR_IMAGE }}:${{ env.VERSION }}" make build-installer-helm
         popd
 
     - name: Release

@@ -6,9 +6,9 @@ package proxy
 
 import (
 	"fmt"
-	"strconv"
 
 	aisapc "github.com/NVIDIA/aistore/api/apc"
+	"github.com/NVIDIA/aistore/api/env"
 	aisv1 "github.com/ais-operator/api/v1beta1"
 	"github.com/ais-operator/pkg/resources/cmn"
 	apiv1 "k8s.io/api/apps/v1"
@@ -47,13 +47,14 @@ func NewProxyStatefulSet(ais *aisv1.AIStore, size int32) *apiv1.StatefulSet {
 			Selector: &metav1.LabelSelector{
 				MatchLabels: ls,
 			},
-			ServiceName:         HeadlessSVCName(ais),
-			PodManagementPolicy: apiv1.ParallelPodManagement,
-			Replicas:            &size,
+			ServiceName:          headlessSVCName(ais),
+			PodManagementPolicy:  apiv1.ParallelPodManagement,
+			Replicas:             &size,
+			VolumeClaimTemplates: proxyVC(ais),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      ls,
-					Annotations: cmn.ParseAnnotations(ais),
+					Annotations: cmn.PrepareAnnotations(ais.Spec.ProxySpec.Annotations, ais.Spec.NetAttachment),
 				},
 				Spec: proxyPodSpec(ais),
 			},
@@ -66,40 +67,15 @@ func NewProxyStatefulSet(ais *aisv1.AIStore, size int32) *apiv1.StatefulSet {
 ////////////////
 
 func proxyPodSpec(ais *aisv1.AIStore) corev1.PodSpec {
-	var optionals []corev1.EnvVar
-	if ais.Spec.ProxySpec.HostPort != nil {
-		optionals = []corev1.EnvVar{
-			cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "status.hostIP"),
-		}
-	}
-	if ais.Spec.GCPSecretName != nil {
-		// TODO -- FIXME: Remove hardcoding for path
-		optionals = append(optionals, cmn.EnvFromValue(cmn.EnvGCPCredsPath, "/var/gcp/gcp.json"))
-	}
-	if ais.Spec.TLSSecretName != nil {
-		optionals = append(optionals, cmn.EnvFromValue(cmn.EnvUseHTTPS, "true"))
-	}
-
 	return corev1.PodSpec{
 		InitContainers: []corev1.Container{
 			{
 				Name:            "populate-env",
 				Image:           ais.Spec.InitImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
-				Env: append([]corev1.EnvVar{
-					cmn.EnvFromFieldPath(cmn.EnvNodeName, "spec.nodeName"),
-					cmn.EnvFromFieldPath(cmn.EnvPodName, "metadata.name"),
-					cmn.EnvFromValue(cmn.EnvClusterDomain, ais.GetClusterDomain()),
-					cmn.EnvFromValue(cmn.EnvNS, ais.Namespace),
-					cmn.EnvFromValue(cmn.EnvServiceName, HeadlessSVCName(ais)),
-					cmn.EnvFromValue(cmn.EnvDaemonRole, aisapc.Proxy),
-					cmn.EnvFromValue(cmn.EnvProxyServiceName, HeadlessSVCName(ais)),
-					cmn.EnvFromValue(cmn.EnvProxyServicePort, ais.Spec.ProxySpec.ServicePort.String()),
-					cmn.EnvFromValue(cmn.EnvDefaultPrimaryPod, ais.DefaultPrimaryName()),
-				}, optionals...),
-				Args:         []string{"-c", "/bin/bash /var/ais_config_template/set_initial_primary_proxy_env.sh"},
-				Command:      []string{"/bin/bash"},
-				VolumeMounts: cmn.NewInitVolumeMounts(aisapc.Proxy),
+				Env:             NewInitContainerEnv(ais),
+				Args:            cmn.NewInitContainerArgs(aisapc.Proxy, ais.Spec.HostnameMap),
+				VolumeMounts:    cmn.NewInitVolumeMounts(),
 			},
 		},
 		Containers: []corev1.Container{
@@ -107,30 +83,18 @@ func proxyPodSpec(ais *aisv1.AIStore) corev1.PodSpec {
 				Name:            "ais-node",
 				Image:           ais.Spec.NodeImage,
 				ImagePullPolicy: corev1.PullAlways,
-				Env: append([]corev1.EnvVar{
-					cmn.EnvFromFieldPath(cmn.EnvPodName, "metadata.name"),
-					cmn.EnvFromValue(cmn.EnvNS, ais.Namespace),
-					cmn.EnvFromValue(cmn.EnvClusterDomain, ais.GetClusterDomain()),
-					cmn.EnvFromValue(cmn.EnvShutdownMarkerPath, "/var/ais_config"),
-					cmn.EnvFromValue(cmn.EnvCIDR, ""), // TODO: Should take from specs
-					cmn.EnvFromValue(cmn.EnvConfigFilePath, "/var/ais_config/ais.json"),
-					cmn.EnvFromValue(cmn.EnvLocalConfigFilePath, "/var/ais_config/ais_local.json"),
-					cmn.EnvFromValue(cmn.EnvStatsDConfig, "/var/statsd_config/statsd.json"),
-					cmn.EnvFromValue(cmn.EnvEnablePrometheus,
-						strconv.FormatBool(ais.Spec.EnablePromExporter != nil && *ais.Spec.EnablePromExporter)),
-					cmn.EnvFromValue(cmn.EnvDaemonRole, aisapc.Proxy),
-					cmn.EnvFromValue(cmn.EnvNumTargets, strconv.Itoa(int(ais.GetTargetSize()))),
-					cmn.EnvFromValue(cmn.EnvProxyServiceName, HeadlessSVCName(ais)),
-					cmn.EnvFromValue(cmn.EnvProxyServicePort, ais.Spec.ProxySpec.ServicePort.String()),
-					cmn.EnvFromValue(cmn.EnvNodeServicePort, ais.Spec.ProxySpec.PublicPort.String()),
-				}, optionals...),
-				Ports:           cmn.NewDaemonPorts(ais.Spec.ProxySpec),
+				Command:         []string{"aisnode"},
+				Args:            cmn.NewAISContainerArgs(ais, aisapc.Proxy),
+				Env:             NewAISContainerEnv(ais),
+				Ports:           cmn.NewDaemonPorts(&ais.Spec.ProxySpec),
+				Resources:       ais.Spec.ProxySpec.Resources,
 				SecurityContext: ais.Spec.ProxySpec.ContainerSecurity,
-				VolumeMounts:    cmn.NewAISVolumeMounts(&ais.Spec, aisapc.Proxy),
-				Lifecycle:       cmn.NewAISNodeLifecycle(),
-				LivenessProbe:   cmn.NewAISLivenessProbe(),
-				ReadinessProbe:  readinessProbe(),
+				VolumeMounts:    cmn.NewAISVolumeMounts(ais, aisapc.Proxy),
+				StartupProbe:    cmn.NewStartupProbe(ais, aisapc.Proxy),
+				LivenessProbe:   cmn.NewLivenessProbe(ais, aisapc.Proxy),
+				ReadinessProbe:  cmn.NewReadinessProbe(ais, aisapc.Proxy),
 			},
+			cmn.NewLogSidecar(aisapc.Proxy),
 		},
 		Affinity:           cmn.CreateAISAffinity(ais.Spec.ProxySpec.Affinity, PodLabels(ais)),
 		NodeSelector:       ais.Spec.ProxySpec.NodeSelector,
@@ -142,6 +106,26 @@ func proxyPodSpec(ais *aisv1.AIStore) corev1.PodSpec {
 	}
 }
 
+func NewInitContainerEnv(ais *aisv1.AIStore) (initEnv []corev1.EnvVar) {
+	initEnv = cmn.CommonInitEnv(ais)
+	initEnv = append(initEnv, cmn.EnvFromValue(cmn.EnvServiceName, headlessSVCName(ais)))
+	if ais.Spec.ProxySpec.HostPort != nil {
+		initEnv = append(initEnv, cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "status.hostIP"))
+	}
+	return
+}
+
+func NewAISContainerEnv(ais *aisv1.AIStore) []corev1.EnvVar {
+	baseEnv := cmn.CommonEnv()
+	if ais.Spec.ProxySpec.HostPort != nil {
+		baseEnv = append(baseEnv, cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "status.hostIP"))
+	}
+	if ais.Spec.AuthNSecretName != nil {
+		baseEnv = append(baseEnv, cmn.EnvFromSecret(env.AisAuthSecretKey, *ais.Spec.AuthNSecretName, cmn.EnvAuthNSecretKey))
+	}
+	return cmn.MergeEnvVars(baseEnv, ais.Spec.ProxySpec.Env)
+}
+
 func PodLabels(ais *aisv1.AIStore) map[string]string {
 	return map[string]string{
 		"app":       ais.Name,
@@ -150,17 +134,11 @@ func PodLabels(ais *aisv1.AIStore) map[string]string {
 	}
 }
 
-func readinessProbe() *corev1.Probe {
-	return &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/bash", "/var/ais_config/ais_readiness.sh"},
-			},
-		},
-		InitialDelaySeconds: 5,
-		PeriodSeconds:       5,
-		FailureThreshold:    3,
-		TimeoutSeconds:      5,
-		SuccessThreshold:    1,
+func proxyVC(ais *aisv1.AIStore) []corev1.PersistentVolumeClaim {
+	if ais.Spec.StateStorageClass != nil {
+		if statePVC := cmn.DefineStatePVC(ais, ais.Spec.StateStorageClass); statePVC != nil {
+			return []corev1.PersistentVolumeClaim{*statePVC}
+		}
 	}
+	return nil
 }

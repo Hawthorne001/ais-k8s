@@ -8,45 +8,41 @@ import (
 	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aiscmn "github.com/NVIDIA/aistore/cmn"
 	aisv1 "github.com/ais-operator/api/v1beta1"
+	"github.com/ais-operator/pkg/resources/cmn"
 	jsoniter "github.com/json-iterator/go"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func configMapName(ais *aisv1.AIStore) string {
-	return ais.Name + "-" + aisapc.Proxy
-}
-
 func ConfigMapNSName(ais *aisv1.AIStore) types.NamespacedName {
 	return types.NamespacedName{
-		Name:      configMapName(ais),
+		Name:      cmn.AISConfigMapName(ais, aisapc.Proxy),
 		Namespace: ais.Namespace,
 	}
 }
 
 func NewProxyCM(ais *aisv1.AIStore) (*corev1.ConfigMap, error) {
-	localConf := localConfTemplate(ais.Spec.ProxySpec.ServiceSpec)
+	localConf := localConfTemplate(&ais.Spec.ProxySpec.ServiceSpec)
 	confLocal, err := jsoniter.MarshalToString(localConf)
 	if err != nil {
 		return nil, err
 	}
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName(ais),
+			Name:      cmn.AISConfigMapName(ais, aisapc.Proxy),
 			Namespace: ais.Namespace,
 		},
 		Data: map[string]string{
-			"ais_local.json":                   confLocal,
-			"set_initial_primary_proxy_env.sh": initProxySh,
+			cmn.AISLocalConfigName: confLocal,
 		},
 	}, nil
 }
 
-func localConfTemplate(spec aisv1.ServiceSpec) aiscmn.LocalConfig {
-	localConf := aiscmn.LocalConfig{
-		ConfigDir: "/etc/ais",
-		LogDir:    "/var/log/ais",
+func localConfTemplate(spec *aisv1.ServiceSpec) aiscmn.LocalConfig {
+	return aiscmn.LocalConfig{
+		ConfigDir: cmn.StateDir,
+		LogDir:    cmn.LogsDir,
 		HostNet: aiscmn.LocalNetConfig{
 			Hostname:             "${AIS_PUBLIC_HOSTNAME}",
 			HostnameIntraControl: "${AIS_INTRA_HOSTNAME}",
@@ -56,5 +52,4 @@ func localConfTemplate(spec aisv1.ServiceSpec) aiscmn.LocalConfig {
 			PortIntraData:        spec.IntraDataPort.IntValue(),
 		},
 	}
-	return localConf
 }

@@ -5,237 +5,94 @@
 package cmn
 
 import (
-	"path"
+	"fmt"
 
 	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-func NewAISVolumes(ais *aisv1.AIStore, daeType string) []corev1.Volume {
-	volumes := []corev1.Volume{
-		{
-			Name: "config-mount",
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
-			},
-		},
-		{
-			Name: "config-template-mount",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: ais.Name + "-" + daeType,
-					},
-				},
-			},
-		},
-		{
-			Name: "config-global",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: globalConfigMapName(ais),
-					},
-				},
-			},
-		},
-		{
-			Name: "env-mount",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: path.Join(ais.Spec.HostpathPrefix, ais.Namespace, ais.Name, daeType+"_env"),
-					Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: "state-mount",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: path.Join(ais.Spec.HostpathPrefix, ais.Namespace, ais.Name, daeType),
-					Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: "statsd-config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: ais.Name + "-statsd",
-					},
-				},
-			},
-		},
-	}
-	if ais.Spec.AWSSecretName != nil {
-		volumes = append(volumes, corev1.Volume{
-			Name: "aws-creds",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: *ais.Spec.AWSSecretName,
-				},
-			},
-		})
-	}
-	if ais.Spec.GCPSecretName != nil {
-		volumes = append(volumes, corev1.Volume{
-			Name: "gcp-creds",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: *ais.Spec.GCPSecretName,
-				},
-			},
-		})
+const (
+	// probe constants
+	// TODO: obtain probe specs from AIStore custom resource spec.
+	defaultProbePeriodSeconds        = 5
+	defaultProbeTimeoutSeconds       = 5
+	defaultReadinessFailureThreshold = 5
+
+	defaultStartupPeriodSeconds    = 5
+	defaultStartupFailureThreshold = 30
+
+	defaultLivenessFailureThreshold    = 10
+	defaultLivenessInitialDelaySeconds = 60
+
+	probeLivenessEndpoint  = "/v1/health"
+	probeReadinessEndpoint = probeLivenessEndpoint + "?readiness=true"
+)
+
+func newHTTPProbeHandle(ais *aisv1.AIStore, daemonRole, probeEndpoint string) corev1.ProbeHandler {
+	var (
+		httpPort  intstr.IntOrString
+		uriScheme = corev1.URISchemeHTTP
+	)
+
+	if ais.UseHTTPS() {
+		uriScheme = corev1.URISchemeHTTPS
 	}
 
-	if ais.Spec.TLSSecretName != nil {
-		volumes = append(volumes, corev1.Volume{
-			Name: "tls-certs",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: *ais.Spec.TLSSecretName,
-				},
-			},
-		})
+	switch daemonRole {
+	case aisapc.Proxy:
+		httpPort = ais.Spec.ProxySpec.PublicPort
+	case aisapc.Target:
+		httpPort = ais.Spec.TargetSpec.PublicPort
 	}
-
-	if ais.Spec.LogsDirectory != "" {
-		volumes = append(volumes, corev1.Volume{
-			Name: "logs-dir",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: path.Join(ais.Spec.LogsDirectory, ais.Namespace, ais.Name, daeType),
-					Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		})
+	return corev1.ProbeHandler{
+		HTTPGet: &corev1.HTTPGetAction{
+			Scheme: uriScheme,
+			Path:   probeEndpoint,
+			Port:   httpPort,
+		},
 	}
-
-	return volumes
 }
 
-func NewAISLivenessProbe() *corev1.Probe {
+func NewLivenessProbe(ais *aisv1.AIStore, daemonRole string) *corev1.Probe {
 	return &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/bash", "/var/ais_config/ais_liveness.sh"},
-			},
-		},
-		InitialDelaySeconds: 90,
-		PeriodSeconds:       5,
-		FailureThreshold:    3,
-		TimeoutSeconds:      5,
+		ProbeHandler:        newHTTPProbeHandle(ais, daemonRole, probeLivenessEndpoint),
+		InitialDelaySeconds: defaultLivenessInitialDelaySeconds,
+		PeriodSeconds:       defaultProbePeriodSeconds,
+		// liveness looks for the AIS daemon to successfully join the cluster.
+		// Cluster join sequence could take a bit long, so add some initial delay to
+		// ensure K8s doesn't kill the aisnode container prematurely.
+		FailureThreshold: defaultLivenessFailureThreshold,
+		TimeoutSeconds:   defaultProbeTimeoutSeconds,
 	}
 }
 
-func NewAISNodeLifecycle() *corev1.Lifecycle {
-	return &corev1.Lifecycle{
-		PreStop: &corev1.LifecycleHandler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/bash", "-c", "/usr/bin/pkill -SIGINT aisnode"},
-			},
-		},
+func NewReadinessProbe(ais *aisv1.AIStore, daemonRole string) *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler:     newHTTPProbeHandle(ais, daemonRole, probeReadinessEndpoint),
+		PeriodSeconds:    defaultProbePeriodSeconds,
+		FailureThreshold: defaultReadinessFailureThreshold,
+		TimeoutSeconds:   defaultProbeTimeoutSeconds,
 	}
 }
 
-func NewAISVolumeMounts(spec *aisv1.AIStoreSpec, daeType string) []corev1.VolumeMount {
-	hostMountSubPath := getHostMountSubPath(daeType)
-	volumeMounts := []corev1.VolumeMount{
-		{
-			Name:      "config-mount",
-			MountPath: "/var/ais_config",
-		},
-		{
-			Name:      "config-global",
-			MountPath: "/var/ais_config/ais.json",
-			SubPath:   "ais.json",
-		},
-		{
-			Name:      "config-global",
-			MountPath: "/var/ais_config/ais_liveness.sh",
-			SubPath:   "ais_liveness.sh",
-		},
-		{
-			Name:      "config-global",
-			MountPath: "/var/ais_config/ais_readiness.sh",
-			SubPath:   "ais_readiness.sh",
-		},
-		{
-			Name:        "env-mount",
-			MountPath:   "/var/ais_env",
-			SubPathExpr: hostMountSubPath,
-		},
-		{
-			Name:        "state-mount",
-			MountPath:   "/etc/ais",
-			SubPathExpr: hostMountSubPath,
-		},
-		{
-			Name:      "statsd-config",
-			MountPath: "/var/statsd_config",
-		},
-	}
-
-	if spec.AWSSecretName != nil {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "aws-creds",
-			ReadOnly:  true,
-			MountPath: "/root/.aws",
-		})
-	}
-	if spec.GCPSecretName != nil {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "gcp-creds",
-			ReadOnly:  true,
-			MountPath: "/var/gcp",
-		})
-	}
-	if spec.TLSSecretName != nil {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "tls-certs",
-			ReadOnly:  true,
-			MountPath: "/var/certs",
-		})
-	}
-	if spec.LogsDirectory != "" {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:        "logs-dir",
-			MountPath:   "/var/log/ais",
-			SubPathExpr: hostMountSubPath,
-		})
-	}
-
-	return volumeMounts
-}
-
-func NewInitVolumeMounts(daeType string) []corev1.VolumeMount {
-	hostMountSubPath := getHostMountSubPath(daeType)
-
-	return []corev1.VolumeMount{
-		{
-			Name:      "config-mount",
-			MountPath: "/var/ais_config",
-		},
-		{
-			Name:      "config-template-mount",
-			MountPath: "/var/ais_config_template",
-		},
-		{
-			Name:      "config-global",
-			MountPath: "/var/global_config",
-		},
-		{
-			Name:        "env-mount",
-			MountPath:   "/var/ais_env",
-			SubPathExpr: hostMountSubPath,
-		},
+func NewStartupProbe(ais *aisv1.AIStore, daemonRole string) *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: newHTTPProbeHandle(ais, daemonRole, probeReadinessEndpoint),
+		// For startup probe, which is a one-time probe we are more aggressive in checking for readiness.
+		// We leave up-to 30secs for the daemon to start responding to HTTP request.
+		// NOTE: Success here only means that the HTTP server is up and running, that doesn't imply AIS daemon is
+		// ready in terms of the AIStore cluster.
+		PeriodSeconds:    defaultStartupPeriodSeconds,
+		FailureThreshold: defaultStartupFailureThreshold,
+		TimeoutSeconds:   defaultProbeTimeoutSeconds,
 	}
 }
 
-func NewDaemonPorts(spec aisv1.DaemonSpec) []corev1.ContainerPort {
+func NewDaemonPorts(spec *aisv1.DaemonSpec) []corev1.ContainerPort {
 	var hostPort int32
 	if spec.HostPort != nil {
 		hostPort = *spec.HostPort
@@ -280,14 +137,25 @@ func createPodAntiAffinity(podLabels map[string]string) *corev1.PodAntiAffinity 
 	}
 }
 
-func getHostMountSubPath(daeType string) string {
-	// Always use the pod name as sub path for targets, since target pods are bound to specific nodes
-	if daeType == aisapc.Target {
-		return "$(MY_POD)"
-	}
-	return ""
+// Generate PVC claim ref for a specific namespace and cluster
+func getStatePVCName(ais *aisv1.AIStore) string {
+	return fmt.Sprintf("%s-%s-%s", ais.Namespace, ais.Name, "state")
 }
 
-func hostPathTypePtr(v corev1.HostPathType) *corev1.HostPathType {
-	return &v
+// DefineStatePVC Define a PVC to use for pod state using dynamically configured volumes
+func DefineStatePVC(ais *aisv1.AIStore, storageClass *string) *corev1.PersistentVolumeClaim {
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: getStatePVCName(ais),
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteOnce,
+			},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+			},
+			StorageClassName: storageClass,
+		},
+	}
 }
