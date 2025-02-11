@@ -29,7 +29,7 @@
   vars_prompt:
     - name: operator_version
       prompt: "Specify the operator_version. Skip to use `AIS Operator` from latest release (https://github.com/NVIDIA/ais-k8s/releases/latest)."
-      default: "v1.1.0"
+      default: "v2.0.1"
       private: no
   roles:
     - ais-deployment/roles/ais_deploy_operator
@@ -120,13 +120,13 @@
     - "ais-deployment/vars/multihome.yml"
   vars_prompt:
     - name: init_image
-      prompt: "Specify the init_image. Skip for AIStore's latest image."
-      default: "aistorage/ais-init:v3.23"
+      prompt: "Specify the init container image. Version should be compatible with the provided aisnode image. Example: aistorage/ais-init:v3.25."
       private: no
 
     - name: node_image
-      prompt: "Specify the node_image. Skip for AIStore's latest image."
-      default: "aistorage/aisnode:v3.23"
+      prompt: "Specify the aisnode container image. Example: aistorage/aisnode:v3.25"
       private: no
   roles:
+    - ais-deployment/roles/create_namespace
+    - ais-deployment/roles/create_pv
     - ais-deployment/roles/ais_deploy_cluster

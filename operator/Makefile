@@ -1,228 +1,306 @@
-# Current Operator version
-VERSION ?= 1.1.0
-BUILD_VERSION = $(VERSION)+$(shell git rev-parse --short HEAD)
+DEFAULT_VERSION = 1.5.0
+# Strip off any preceding `v` from version string
+HELM_CHART_VERSION := $(shell echo $(VERSION) | sed 's/^v//')
+# Use VERSION if provided
+BUILD_VERSION_BASE = $(if $(VERSION),$(VERSION),$(DEFAULT_VERSION))
+BUILD_VERSION = $(BUILD_VERSION_BASE)+$(shell git rev-parse --short HEAD)
 BUILD_TIME = $(shell date +%FT%T%z)
+
 REPO = https://github.com/NVIDIA/ais-k8s
+PAGES = https://NVIDIA.github.io/ais-k8s/charts
 
-# Default bundle image tag
-BUNDLE_IMG ?= ais-operator-bundle:v$(VERSION)
-# Options for 'bundle-build'
-ifneq ($(origin CHANNELS), undefined)
-BUNDLE_CHANNELS := --channels=$(CHANNELS)
-endif
-ifneq ($(origin DEFAULT_CHANNEL), undefined)
-BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
-endif
-BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.25.0
 
-LOCALBIN=$(shell pwd)/bin
-# Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
-CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
+# KIND_K8S_VERSION refers to the version of container images for nodes that are being created during cluster setup.
+KIND_K8S_VERSION ?= v1.28.7
 
-SHELL := /bin/bash
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
+
+# CONTAINER_TOOL defines the container tool to be used for building images.
+# Be aware that the target commands are only tested with Docker which is
+# scaffolded by default. However, you might want to replace it to use other
+# tools. (i.e. podman)
+CONTAINER_TOOL ?= docker
+
+# Setting SHELL to bash allows bash commands to be executed by recipes.
+# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
+
 SCRIPTS_DIR = ./scripts
 
-HELM_VERSION = v3.14.2
+.PHONY: all
+all: build
 
-GOLANGCI_LINT_VERSION := v1.58.1
-GOLANGCI_LINT := $(GOBIN)/golangci-lint
-GOLANGCI_INSTALLER := https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh
+##@ General
 
-all: manager
-
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk command is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
 
 require-img:
 	@[ "${IMG}" ] || ( echo "IMG must be set for this make target"; exit 1 )
 
-# Run tests
-test: generate fmt vet manifests test-suite-deps
-	@$(SHELL) "$(SCRIPTS_DIR)/test.sh"
+require-version:
+	@[ "${VERSION}" ] || ( echo "VERSION must be set for this make target"; exit 1 )
 
-test-short: generate fmt vet manifests test-suite-deps
-	@$(SHELL) "$(SCRIPTS_DIR)/test.sh" short
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-test-long: generate fmt vet manifests test-suite-deps
-	@$(SHELL) "$(SCRIPTS_DIR)/test.sh" long
+##@ Development
 
-test-manual: generate fmt vet manifests test-suite-deps
-	@$(SHELL) "$(SCRIPTS_DIR)/test.sh" manual
+.PHONY: manifests
+manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
-test-suite-deps:
-	go env -w GOFLAGS=-mod=mod
-	go install github.com/onsi/ginkgo/v2/ginkgo
+.PHONY: generate
+generate: controller-gen mockgen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	go generate ./...
 
-# Build manager binary
-manager: generate fmt vet
-	go build -o bin/manager main.go
-
-# Run against the configured Kubernetes cluster in ~/.kube/config
-run: generate fmt vet manifests
-	go run ./main.go
-
-# Install CRDs into a cluster
-install: manifests kustomize
-	$(KUSTOMIZE) build config/crd | kubectl apply -f -
-
-# Uninstall CRDs from a cluster
-uninstall: manifests kustomize
-	$(KUSTOMIZE) build config/crd | kubectl delete -f -
-
-# Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: require-img manifests kustomize
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	@$(SHELL) -c "$(SCRIPTS_DIR)/deploy.sh --build"
-
-# UnDeploy controller from the configured Kubernetes cluster in ~/.kube/config
-undeploy:
-	$(KUSTOMIZE) build config/default | kubectl delete -f -
-
-deploy-metallb: kustomize
-	@if [[ -z "$EXTERNAL_ADDRESSES" ]]; then echo "EXTERNAL_ADDRESSES variable cannot be empty"; exit 1; fi
-	$(KUSTOMIZE) build github.com/metallb/metallb//manifests?ref=v0.9.5 | kubectl apply -f -
-	@envsubst <config/metallb/configmap.template.yaml | kubectl apply -f -
-
-undeploy-metallb: kustomize
-	@kubectl delete cm metallb-config -n metallb-system
-	$(KUSTOMIZE) build github.com/metallb/metallb//manifests?ref=v0.9.5 | kubectl delete -f -
-
-# Generate manifests e.g. CRD, RBAC etc.
-manifests: controller-gen
-	$(CONTROLLER_GEN) crd rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
-
-bundle-manifests: require-img kustomize manifests
-	mkdir -p dist/
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default > dist/ais-operator.yaml
-	
-bundle-manifests-helm: helm helmify bundle-manifests
-	mkdir -p dist/charts/
-	cat dist/ais-operator.yaml | $(HELMIFY) dist/charts/ais-operator
-	$(HELM) package dist/charts/ais-operator -d dist/
-	$(HELM) repo index --url $(REPO)/releases/download/v$(VERSION) dist/
-
-# Run go fmt against code
-fmt:
+.PHONY: fmt
+fmt: ## Run go fmt against code.
 	go fmt ./...
 
-# Run go vet against code
-vet:
+.PHONY: vet
+vet: ## Run go vet against code.
 	go vet ./...
 
-# Generate code
-generate: controller-gen
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+.PHONY: test test-e2e test-e2-short test-e2-long test-e2e-manual
+test: manifests generate fmt vet envtest ## Run tests.
+	@[[ $$(command -v ginkgo) ]] || go install github.com/onsi/ginkgo/v2/ginkgo
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" ginkgo --vv --skip-package e2e --coverprofile cover.out ./...
 
-## Update the linter version (removes previous one and downloads a new one)
-lint-update-latest:
-	rm -f $(GOLANGCI_LINT)
-	curl -sSfL $(GOLANGCI_INSTALLER) | sh -s -- -b $(GOBIN) latest
+test-e2e: manifests generate fmt vet envtest
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(SHELL) "$(SCRIPTS_DIR)/test.sh"
 
-## Install specific `golangci-lint` version
-lint-update-fixed:
-	@rm -f $(GOLANGCI_LINT)
-	curl -sSfL $(GOLANGCI_INSTALLER) | sh -s -- -b $(GOBIN) $(GOLANGCI_LINT_VERSION)
+test-e2e-short: manifests generate fmt vet envtest
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(SHELL) "$(SCRIPTS_DIR)/test.sh" short
 
-## Run linter on whole project
-lint:
-	@$(SHELL) "$(SCRIPTS_DIR)/lint.sh" lint
+test-e2e-long: manifests generate fmt vet envtest
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(SHELL) "$(SCRIPTS_DIR)/test.sh" long
 
-lint-fix:
-	@$(SHELL) "$(SCRIPTS_DIR)/lint.sh" lint --fix
+test-e2e-manual: manifests generate fmt vet envtest
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(SHELL) "$(SCRIPTS_DIR)/test.sh" manual
 
+.PHONY: kind kind-setup kind-teardown
+kind:
+	@[[ $$(command -v kind) ]] || go install sigs.k8s.io/kind@v0.23.0
+kind-setup: kind
+	kind create cluster --name ais-operator-test --image kindest/node:$(KIND_K8S_VERSION) --config scripts/kind_cluster_local.yaml
+kind-teardown: kind
+	kind delete cluster --name ais-operator-test
+
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint linter
+	$(GOLANGCI_LINT) run
+
+.PHONY: lint-fix
+lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+	$(GOLANGCI_LINT) run --fix
+
+.PHONY: fmt-check
 fmt-check: ## Check code formatting
 	@$(SHELL) "$(SCRIPTS_DIR)/lint.sh" fmt
 
+.PHONY: fmt-fix
 fmt-fix: ## Fix code formatting
 	@$(SHELL) "$(SCRIPTS_DIR)/lint.sh" fmt --fix
 
-spell-check: ## Run spell checker on the project
-	@go install github.com/client9/misspell/cmd/misspell@v0.3.4
-	@$(SHELL) "$(SCRIPTS_DIR)/lint.sh" spell
+##@ Build
 
-spell-fix: ## Fix spell checking issues
-	@go install github.com/client9/misspell/cmd/misspell@v0.3.4
-	@$(SHELL) "$(SCRIPTS_DIR)/lint.sh" spell --fix
+.PHONY: build
+build: manifests generate fmt vet ## Build manager binary.
+	go build -o bin/manager cmd/main.go
 
-# Build the docker image
-docker-build: require-img generate fmt vet manifests
-	docker build --build-arg BUILD_TIME="$(BUILD_TIME)" --build-arg BUILD_VERSION="$(BUILD_VERSION)" -t ${IMG} .
+.PHONY: run
+run: manifests generate fmt vet ## Run a controller from your host.
+	go run ./cmd/main.go
 
-# Build an image accessible from a local k8s cluster (for testing)
-docker-build-k8s: require-img docker-build
-	docker save ${IMG} -o ais-operator-tmp.tar
-	sudo ctr -n=k8s.io images import ais-operator-tmp.tar
-	rm ais-operator-tmp.tar
+# If you wish to build the manager image targeting other platforms you can use the --platform flag.
+# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
+# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+.PHONY: docker-build
+docker-build: require-img ## Build docker image with the manager.
+	$(CONTAINER_TOOL) build -t ${IMG} .
 
-# Push the docker image
-docker-push: require-img
-	docker push ${IMG}
+.PHONY: docker-push
+docker-push: require-img ## Push docker image with the manager.
+	$(CONTAINER_TOOL) push ${IMG}
 
-# Download controller-gen locally if necessary
-CONTROLLER_GEN = $(LOCALBIN)/controller-gen
-controller-gen:
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0)
+# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
+# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
+# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
+# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
+# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+.PHONY: docker-buildx
+docker-buildx: ## Build and push docker image for the manager for cross-platform support
+	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
+	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
+	- $(CONTAINER_TOOL) buildx create --name output-dir-builder
+	$(CONTAINER_TOOL) buildx use output-dir-builder
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx rm output-dir-builder
+	rm Dockerfile.cross
 
-# Download kustomize locally if necessary
-KUSTOMIZE = $(LOCALBIN)/kustomize
-.PHONY: kustomize
-kustomize:
-	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.7)
+.PHONY: build-installer
+build-installer: require-img manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+	mkdir -p dist
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default > dist/ais-operator.yaml
 
+.PHONY: build-installer-helm
+build-installer-helm: require-img require-version helm helmify build-installer
+	mkdir -p dist/ais-operator
+	$(HELMIFY) -f dist/ais-operator.yaml dist/ais-operator
+	$(HELM) package dist/ais-operator -d ../pages/charts/ --version $(HELM_CHART_VERSION) --app-version $(HELM_CHART_VERSION)
+	$(HELM) repo index --url $(PAGES) ../pages/charts --merge ../pages/charts/index.yaml
+
+.PHONY: release
+release: build-installer-helm
+	git add ../pages/charts config/manager/kustomization.yaml
+	git commit -s -m "Release operator version $(VERSION)"
+	git tag $(VERSION)
+
+##@ Deployment
+
+ifndef ignore-not-found
+  ignore-not-found = false
+endif
+
+.PHONY: install
+install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
+
+.PHONY: uninstall
+uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy
+deploy: require-img manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: undeploy
+undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Dependencies
+
+## Location to install dependencies to
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+## Tool Binaries
+KUBECTL ?= kubectl
+KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
+ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
+HELMIFY = $(LOCALBIN)/helmify
 HELM = $(LOCALBIN)/helm
+
+## Tool Versions
+HELM_VERSION ?= v3.16.2
+KUSTOMIZE_VERSION ?= v5.4.1
+CONTROLLER_TOOLS_VERSION ?= v0.16.1
+ENVTEST_VERSION ?= release-0.18
+MOCKGEN_VERSION ?= v0.4.0
+
+# Lint
+GOLANGCI_LINT = $(shell which golangci-lint)
+GOLANGCI_LINT_LIB = github.com/golangci/golangci-lint/cmd/golangci-lint
+GOLANGCI_LINT_VERSION ?= v1.63.4
+
+
+OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH := $(shell uname -m)
+SYSTEM := $(OS)-$(ARCH)
+
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
+$(KUSTOMIZE): $(LOCALBIN)
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+
+.PHONY: envtest
+envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
+$(ENVTEST): $(LOCALBIN)
+	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: golangci-lint
+golangci-lint:
+# If we don't have it in path, install locally if necessary
+ifeq ($(GOLANGCI_LINT),)
+	$(call go-install-tool,$(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION),$(GOLANGCI_LINT_LIB),$(GOLANGCI_LINT_VERSION))
+	$(eval GOLANGCI_LINT := $(GOPATH)/bin/golangci-lint)
+endif
+	@echo "Using golangci-lint: $(GOLANGCI_LINT)"
+
 .PHONY: helm
 helm:
 	$(call helm-get-tool)
 
-# Install helmify for generating helm chart from kustomize-generated manifests
-HELMIFY = $(LOCALBIN)/helmify
 .PHONY: helmify
-helmify:
-	$(call go-get-tool,$(HELMIFY),github.com/arttor/helmify/cmd/helmify@latest)
-    
+helmify: $(HELMIFY)
+$(HELMIFY): $(LOCALBIN)
+	$(call go-install-tool,$(HELMIFY),github.com/arttor/helmify/cmd/helmify,latest)
 
-# go-get-tool will 'go get' any package $2 and install it to bin/ if $1 does not exist.
-define go-get-tool
+.PHONY: mockgen
+mockgen: ## Download mockgen locally if necessary.
+	@echo "Downloading mockgen"
+	@go install go.uber.org/mock/mockgen@$(MOCKGEN_VERSION)
+
+# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
+# $1 - target path with name of binary (ideally with version)
+# $2 - package url which can be installed
+# $3 - specific version of package
+define go-install-tool
 @[ -f $(1) ] || { \
-set -e ;\
-TMP_DIR=$$(mktemp -d) ;\
-cd $$TMP_DIR ;\
-go mod init tmp ;\
-echo "Downloading $(2)" ;\
-GOBIN=$(LOCALBIN) go install $(2) ;\
-rm -rf $$TMP_DIR ;\
+set -e; \
+package=$(2)@$(3) ;\
+SRC="$$(echo "$(1)" | sed "s/-$(3)$$//")" ;\
+DEST=$(1) ;\
+echo "Downloading $${package}" ;\
+GOBIN=$(LOCALBIN) go install $${package} ;\
+if [ "$$SRC" != "$$DEST" ]; then \
+  mv -f $$SRC $$DEST ;\
+fi ;\
 }
 endef
+
 
 # get helm and install it locally
 define helm-get-tool
 @[ -f $(HELM) ] || { \
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
+[ -d $(LOCALBIN) ] || mkdir -p $(LOCALBIN) ;\
 cd $$TMP_DIR ;\
-echo "Downloading Helm $(HELM_VERSION)" ;\
-curl -sSL https://get.helm.sh/helm-$(HELM_VERSION)-linux-amd64.tar.gz -o helm.tar.gz ;\
-tar -zxf helm.tar.gz ;\
-mv linux-amd64/helm $(LOCALBIN) ;\
+echo "Downloading 'get-helm' script" ;\
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 ;\
+chmod 700 get_helm.sh ;\
+HELM_INSTALL_DIR=$(LOCALBIN) ./get_helm.sh --version $(HELM_VERSION) --no-sudo ;\
 rm -rf $$TMP_DIR ;\
-echo "Helm $(HELM_VERSION) has been installed to $(LOCALBIN)" ;\
 }
 endef
-
-# Generate bundle manifests and metadata, then validate generated files.
-.PHONY: bundle
-bundle: require-img manifests kustomize
-	operator-sdk generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
-	operator-sdk bundle validate ./bundle
-
-# Build the bundle image.
-.PHONY: bundle-build
-bundle-build:
-	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .

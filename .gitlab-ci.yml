@@ -1,161 +1,136 @@
-image: ubuntu:22.04
+image: aistorage/ci:latest
 
 stages:
-  - build
-  - test:short
-  - test:long
+  - operator:build
+  - operator:test:short
+  - operator:test:long
 
-# NOTE: uses default tag ':latest', as in: 'aistorage/aisnode:latest'
-variables:
-  ADMIN_IMAGE: "aistorage/admin"
-  AISNODE_IMAGE: "aistorage/aisnode"
-  TEST_ALLOW_SHARED_NO_DISKS: "true"
+.operator_rules_template: &operator_rules_def
+  rules:
+    # Run on schedules
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: on_success
 
-before_script:
-  - apt-get update -y --allow-releaseinfo-change && apt install -y docker.io build-essential
-  - nohup dockerd >/dev/null 2>&1 & sleep 10
-  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD
+    # Skip if skip-ci label is present
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/
+      when: never
 
-.default_only_template: &default_only_def
-  only:
-    - main
-    - merge_requests
-    - schedules
+    # Run if there are changes in operator directory
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "main"
+      changes:
+        - operator/**/*
+      when: on_success
 
-build:operator:lint:
-  stage: build
-  image: aistorage/ci:latest
+    # Manual run if no operator changes (with allow_failure)
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+
+operator:lint:
+  stage: operator:build
   timeout: 10m
-  <<: *default_only_def
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
     - cd operator
     - make lint
     - make fmt-check
-    - make spell-check
+    - make generate && [[ -z "$(git status -s)" ]] || { echo "You need to run 'make generate'"; exit 1; }
+    - make manifests && [[ -z "$(git status -s)" ]] || { echo "You need to run 'make manifests'"; exit 1; }
 
-build:operator:
-  stage: build
-  image: aistorage/ci:latest
+operator:build:
+  stage: operator:build
   timeout: 10m
-  <<: *default_only_def
+  <<: *operator_rules_def
   script:
-    - make -C operator manager
+    - make -C operator build
 
-operator:minikube:short:
-  stage: test:short
-  needs: ["build:operator:lint", "build:operator"]
-  image: aistorage/ci:latest
-  <<: *default_only_def
-  tags:
-    - ais-k8s
+operator:test:unit:
+  stage: operator:test:short
+  timeout: 10m
+  <<: *operator_rules_def
+  script:
+    - make -C operator test
+
+operator:test:kind:unit:
+  stage: operator:test:short
+  <<: *operator_rules_def
+  services: ["docker:24.0.5-dind"]
+  tags: ["ais"]
+  allow_failure: true
+  variables:
+    RUNNER_SCRIPT_TIMEOUT: 10m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 2m
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  parallel:
+    matrix:
+      - KUBERNETES_VERSION:
+          - v1.28.9
+          - v1.29.4
+          - v1.30.2
+  before_script:
+    - make -C operator kind
+    - kind create cluster --name ais-operator-test --image "kindest/node:${KUBERNETES_VERSION}" --config operator/scripts/kind_cluster_gitlab.yaml --retain
+    - sed -i -E -e 's/localhost|0\.0\.0\.0/docker/g' "$HOME/.kube/config"
+    - kubectl cluster-info
+  script:
+    - export USE_EXISTING_CLUSTER=true
+    - make -C operator test
+  after_script:
+    - kind export logs logs --name ais-operator-test
+    - kind delete cluster --name ais-operator-test
+  artifacts:
+    when: on_failure
+    paths: ["logs/"]
+    expire_in: 1 day
+
+operator:test:minikube:short:
+  stage: operator:test:short
+  tags: ["ais-k8s"]
   timeout: 30m
+  <<: *operator_rules_def
+  before_script:
+    - kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
   script:
-    - make -C operator test-short
-  except:
-    variables:
-      - $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/
+    - make -C operator test-e2e-short
 
-operator:minikube:long:
-  stage: test:long
-  needs: ["operator:minikube:short"]
-  image: aistorage/ci:latest
-  tags:
-    - ais-k8s-multinode
+operator:test:minikube:long:
+  stage: operator:test:long
+  needs: ["operator:test:minikube:short"]
+  tags: ["ais-k8s-multinode"]
   timeout: 40m
+  <<: *operator_rules_def
+  before_script:
+    - kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
+  script:
+    - make -C operator test-e2e-long
+
+operator:test:minikube:metallb:
+  stage: operator:test:long
+  needs: ["operator:test:minikube:short"]
+  tags: ["ais-k8s-multinode"]
+  timeout: 25m
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/'
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/
       when: never
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
-        - operator/*
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+        - operator/**/*
       when: manual
       allow_failure: true
-  script:
-    - make -C operator test-long
-
-operator:minikube:metallb:
-  stage: test:long
-  needs: ["operator:minikube:short"]
-  image: aistorage/ci:latest
   variables:
+    RUNNER_SCRIPT_TIMEOUT: 20m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 2m
     # NOTE: No particular reason why these addresses would be unavailable.
     EXTERNAL_ADDRESSES: 172.20.0.100–172.20.0.120
-  tags:
-    - ais-k8s-multinode
-  timeout: 20m
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/'
-      when: never
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      when: manual
-      allow_failure: true
   before_script:
     - apt-get install gettext-base
     - make -C operator deploy-metallb
   script:
-    - make -C operator test
+    - make -C operator test-e2e
   after_script:
     - make -C operator undeploy-metallb
-
-.operator_gcp:
-  stage: test:long
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/'
-      when: never
-  # If minikube fails - don't bother to try GCP.
-  needs: ["operator:minikube:short"]
-  image: aistorage/ci:latest
-  timeout: 60m
-  variables:
-    GOOGLE_APPLICATION_CREDENTIALS: "/tmp/gcs.json"
-  tags:
-    - ais-k8s-multinode
-  before_script:
-    - apt-get update -y && apt install -y build-essential
-    - make -C terraform ci-prepare
-    - echo "${GOOGLE_APPLICATION_CREDENTIALS_JSON}" > "${GOOGLE_APPLICATION_CREDENTIALS}"
-  script:
-    - make -C terraform ci-deploy-k8s
-    - make -C operator test
-  after_script:
-    - make -C terraform destroy
-
-operator:gcp:
-  extends: .operator_gcp
-  rules:
-  - if: '$CI_PIPELINE_SOURCE == "schedule"'
-  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/'
-    when: never
-  - if: '$CI_MERGE_REQUEST_LABELS =~ /.*skip-ci-gcp.*/'
-    when: manual
-    allow_failure: true
-  # TODO -- FIXME: GCP tests always fail, skipping automatic running of pipeline for now.
-  # - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  #   changes:
-  #     - operator/*
-  #     - terraform/*
-  - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    when: manual
-    allow_failure: true
-  tags:
-    - ais-k8s-multinode
-  script:
-    - make -C terraform ci-deploy-k8s
-    - make -C operator test
-
-operator:gcp:cilium:
-  extends: .operator_gcp
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /.*skip-ci.*/'
-      when: never
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      when: manual
-      allow_failure: true
-  script:
-    - make -C terraform ci-deploy-k8s ARGS="cilium"
-    - make -C operator test

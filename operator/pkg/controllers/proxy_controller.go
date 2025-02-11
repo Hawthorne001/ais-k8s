@@ -6,118 +6,141 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 
-	aisapi "github.com/NVIDIA/aistore/api"
 	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/v1beta1"
 	"github.com/ais-operator/pkg/resources/cmn"
 	"github.com/ais-operator/pkg/resources/proxy"
-	apiv1 "k8s.io/api/apps/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
+	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	primaryStartTimeout = time.Minute
-	// Default coreDNS cache time is 30 seconds -- should be patched for faster runs on test runners
-	dnsEntryWaitTimeout = 40 * time.Second
-	dnsEntryInterval    = 2 * time.Second
+	proxyStartupInterval = 5 * time.Second
+	proxyDNSInterval     = 5 * time.Second
+	proxyDNSTimeout      = 10 * time.Second
 )
 
-func (r *AIStoreReconciler) initProxies(ctx context.Context, ais *aisv1.AIStore) (changed bool, err error) {
-	var (
-		cm     *corev1.ConfigMap
-		exists bool
-	)
+func (r *AIStoreReconciler) ensureProxyPrereqs(ctx context.Context, ais *aisv1.AIStore) (err error) {
+	var cm *corev1.ConfigMap
 
 	// 1. Deploy required ConfigMap
 	cm, err = proxy.NewProxyCM(ais)
 	if err != nil {
-		r.recordError(ais, err, "Failed to generate valid proxy ConfigMap")
+		r.recordError(ctx, ais, err, "Failed to generate valid proxy ConfigMap")
 		return
 	}
 
-	if _, err = r.client.CreateResourceIfNotExists(context.TODO(), ais, cm); err != nil {
-		r.recordError(ais, err, "Failed to deploy ConfigMap")
+	if err = r.k8sClient.CreateOrUpdateResource(context.TODO(), ais, cm); err != nil {
+		r.recordError(ctx, ais, err, "Failed to deploy ConfigMap")
 		return
 	}
 
-	// 2. Deploy services
 	svc := proxy.NewProxyHeadlessSvc(ais)
-	if _, err = r.client.CreateResourceIfNotExists(ctx, ais, svc); err != nil {
-		r.recordError(ais, err, "Failed to deploy SVC")
+	if err = r.k8sClient.CreateOrUpdateResource(ctx, ais, svc); err != nil {
+		r.recordError(ctx, ais, err, "Failed to deploy SVC")
 		return
-	}
-
-	// 3. Create a proxy statefulset with single replica as primary
-	pod := proxy.NewProxyStatefulSet(ais, 1)
-	if exists, err = r.client.CreateResourceIfNotExists(ctx, ais, pod); err != nil {
-		r.recordError(ais, err, "Failed to deploy Primary proxy")
-		return
-	} else if !exists {
-		changed = true
-		return
-	}
-
-	// Wait for primary to start-up.
-	if err = r.client.WaitForPodReady(ctx, proxy.DefaultPrimaryNSName(ais), primaryStartTimeout); err != nil {
-		return
-	}
-
-	// 4. Start all the proxy daemons
-	changed, err = r.client.UpdateStatefulSetReplicas(ctx, proxy.StatefulSetNSName(ais), ais.GetProxySize())
-	if err != nil {
-		r.recordError(ais, err, "Failed to deploy StatefulSet")
-		return
-	}
-	if changed {
-		msg := "Successfully initialized proxy nodes"
-		r.log.Info(msg)
-		r.recorder.Event(ais, corev1.EventTypeNormal, EventReasonInitialized, msg)
-	}
-
-	// Wait for proxy service to have a registered DNS entry
-	if err = r.waitForDNSEntry(ctx, ais.GetClusterDomain(), svc, dnsEntryInterval, dnsEntryWaitTimeout); err != nil {
-		r.recordError(ais, err, "Failed while waiting for DNS entry for proxy service")
 	}
 	return
 }
 
-func (r *AIStoreReconciler) waitForDNSEntry(ctx context.Context, clusterDomain string, svc *corev1.Service, retryInterval, timeout time.Duration) error {
-	hostname := fmt.Sprintf("%s.%s.svc.%s", svc.Name, svc.Namespace, clusterDomain)
-	return wait.PollUntilContextTimeout(ctx, retryInterval, timeout, true /*immediate*/, func(_ context.Context) (done bool, err error) {
-		if _, err = net.LookupIP(hostname); err != nil {
-			r.log.Error(err, "Failed to lookup DNS entry for service", "hostname", hostname)
-			return false, nil
+func (r *AIStoreReconciler) initProxies(ctx context.Context, ais *aisv1.AIStore) (ctrl.Result, error) {
+	var (
+		err     error
+		exists  bool
+		changed bool
+		logger  = logf.FromContext(ctx)
+	)
+
+	// 1. Create a proxy statefulset with single replica as primary
+	ss := proxy.NewProxyStatefulSet(ais, 1)
+	if exists, err = r.k8sClient.CreateResourceIfNotExists(ctx, ais, ss); err != nil {
+		r.recordError(ctx, ais, err, "Failed to deploy Primary proxy")
+		return ctrl.Result{}, err
+	} else if !exists {
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Wait for primary to start-up.
+	_, err = r.k8sClient.GetReadyPod(ctx, proxy.DefaultPrimaryNSName(ais))
+	if err != nil {
+		logger.Info("Waiting for primary proxy to come up", "err", err.Error())
+		r.recorder.Event(ais, corev1.EventTypeNormal, EventReasonWaiting, "Waiting for primary proxy to come up")
+		return ctrl.Result{RequeueAfter: proxyStartupInterval}, nil
+	}
+
+	// 2. Start all the proxy daemons
+	changed, err = r.k8sClient.UpdateStatefulSetReplicas(ctx, proxy.StatefulSetNSName(ais), ais.GetProxySize())
+	if err != nil {
+		r.recordError(ctx, ais, err, "Failed to deploy StatefulSet")
+		return ctrl.Result{}, err
+	}
+	if changed {
+		msg := "Successfully initialized proxy nodes"
+		logger.Info(msg)
+		r.recorder.Event(ais, corev1.EventTypeNormal, EventReasonInitialized, msg)
+	}
+
+	// Check whether proxy service to have a registered DNS entry.
+	if dnsErr := checkDNSEntry(ctx, ais); dnsErr != nil {
+		logger.Info("Failed to find any DNS entries for proxy service", "error", dnsErr)
+		r.recorder.Event(ais, corev1.EventTypeNormal, EventReasonWaiting, "Waiting for proxy service to have registered DNS entries")
+		return ctrl.Result{RequeueAfter: proxyDNSInterval}, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+var checkDNSEntry = checkDNSEntryDefault
+
+func checkDNSEntryDefault(ctx context.Context, ais *aisv1.AIStore) error {
+	nsName := proxy.HeadlessSVCNSName(ais)
+	clusterDomain := ais.GetClusterDomain()
+	hostname := fmt.Sprintf("%s.%s.svc.%s", nsName.Name, nsName.Namespace, clusterDomain)
+
+	ctx, cancel := context.WithTimeout(ctx, proxyDNSTimeout)
+	defer cancel()
+	_, err := net.DefaultResolver.LookupIPAddr(ctx, hostname)
+	// Log an error if we have an actual error, not just no host found
+	if err != nil {
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && !dnsErr.IsNotFound {
+			logf.FromContext(ctx).Error(dnsErr, "Error looking up DNS entry")
 		}
-		return true, nil // DNS entry found
-	})
+	}
+	return err
 }
 
 func (r *AIStoreReconciler) cleanupProxy(ctx context.Context, ais *aisv1.AIStore) (anyExisted bool, err error) {
 	return cmn.AnyFunc(
-		func() (bool, error) { return r.client.DeleteStatefulSetIfExists(ctx, proxy.StatefulSetNSName(ais)) },
-		func() (bool, error) { return r.client.DeleteServiceIfExists(ctx, proxy.HeadlessSVCNSName(ais)) },
-		func() (bool, error) { return r.client.DeleteServiceIfExists(ctx, proxy.LoadBalancerSVCNSName(ais)) },
-		func() (bool, error) { return r.client.DeleteConfigMapIfExists(ctx, proxy.ConfigMapNSName(ais)) },
+		func() (bool, error) { return r.k8sClient.DeleteStatefulSetIfExists(ctx, proxy.StatefulSetNSName(ais)) },
+		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, proxy.HeadlessSVCNSName(ais)) },
+		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, proxy.LoadBalancerSVCNSName(ais)) },
+		func() (bool, error) { return r.k8sClient.DeleteConfigMapIfExists(ctx, proxy.ConfigMapNSName(ais)) },
 	)
 }
 
-func (r *AIStoreReconciler) handleProxyState(ctx context.Context, ais *aisv1.AIStore) (ready bool, err error) {
-	if hasLatest, err := r.handleProxyImage(ctx, ais); !hasLatest || err != nil {
-		return false, err
+func (r *AIStoreReconciler) handleProxyState(ctx context.Context, ais *aisv1.AIStore) (result ctrl.Result, err error) {
+	proxySSName := proxy.StatefulSetNSName(ais)
+	ss, err := r.k8sClient.GetStatefulSet(ctx, proxySSName)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return r.initProxies(ctx, ais)
+		}
+		return
 	}
 
-	proxySSName := proxy.StatefulSetNSName(ais)
-	// Fetch the latest statefulset for proxies and check if it's spec (for now just replicas), matches the AIS cluster spec.
-	ss, err := r.client.GetStatefulSet(ctx, proxySSName)
-	if err != nil {
-		return ready, err
+	result, err = r.syncProxyPodSpec(ctx, ais, ss)
+	if err != nil || !result.IsZero() {
+		return
 	}
 
 	if *ss.Spec.Replicas != ais.GetProxySize() {
@@ -125,45 +148,54 @@ func (r *AIStoreReconciler) handleProxyState(ctx context.Context, ais *aisv1.AIS
 			// If the cluster is scaling down, ensure the pod being delete is not primary.
 			r.handleProxyScaledown(ctx, ais, *ss.Spec.Replicas)
 		}
-		err = r.verifyNodesAvailable(ctx, ais, aisapc.Proxy)
-		if err != nil {
-			return false, err
-		}
 		// If anything was updated, we consider it not immediately ready.
-		updated, err := r.client.UpdateStatefulSetReplicas(ctx, proxySSName, ais.GetProxySize())
-		if updated || err != nil {
-			return false, err
+		updated, err := r.k8sClient.UpdateStatefulSetReplicas(ctx, proxySSName, ais.GetProxySize())
+		if err != nil || updated {
+			result.Requeue = true
+			return result, err
 		}
 	}
 
-	// For now, state of proxy is considered ready if the number of proxy pods ready matches the size provided in AIS cluster spec.
-	return ss.Status.ReadyReplicas == ais.GetProxySize(), nil
+	// Requeue if the number of proxy pods ready does not match the size provided in AIS cluster spec.
+	if ss.Status.ReadyReplicas != ais.GetProxySize() {
+		logf.FromContext(ctx).Info("Waiting for proxy statefulset to reach desired replicas")
+		return ctrl.Result{RequeueAfter: proxyStartupInterval}, nil
+	}
+	return
 }
 
-func (r *AIStoreReconciler) handleProxyImage(ctx context.Context, ais *aisv1.AIStore) (ready bool, err error) {
-	ss, err := r.client.GetStatefulSet(ctx, proxy.StatefulSetNSName(ais))
-	if err != nil {
-		return
-	}
+func (r *AIStoreReconciler) syncProxyPodSpec(ctx context.Context, ais *aisv1.AIStore, ss *appsv1.StatefulSet) (result ctrl.Result, err error) {
+	logger := logf.FromContext(ctx)
 	firstPodName := proxy.PodName(ais, 0)
-	updated := ss.Spec.Template.Spec.Containers[0].Image != ais.Spec.NodeImage
-	if updated {
-		if err := r.setPrimaryTo(ctx, ais, 0); err != nil {
-			r.log.Error(err, "failed to set primary proxy")
-			return false, err
+	currentTemplate := &ss.Spec.Template
+	desiredTemplate := &proxy.NewProxyStatefulSet(ais, ais.GetProxySize()).Spec.Template
+
+	// Any change to pod template will trigger a new rollout, so any changes to the SS should happen here
+	if needsUpdate, reason := shouldUpdatePodTemplate(desiredTemplate, currentTemplate); needsUpdate {
+		if ss.Status.ReadyReplicas > 0 {
+			err = r.setPrimaryTo(ctx, ais, 0)
+			if err != nil {
+				logger.Error(err, "failed to set primary proxy", "podIndex", 0)
+				return
+			}
+			logger.Info("Updated primary to pod", "pod", firstPodName, "reason", reason)
+			ss.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.RollingUpdateStatefulSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+					Partition: func(v int32) *int32 { return &v }(1),
+				},
+			}
 		}
-		r.log.Info("updated primary to pod " + firstPodName)
-		ss.Spec.Template.Spec.Containers[0].Image = ais.Spec.NodeImage
-		ss.Spec.UpdateStrategy = apiv1.StatefulSetUpdateStrategy{
-			Type: apiv1.RollingUpdateStatefulSetStrategyType,
-			RollingUpdate: &apiv1.RollingUpdateStatefulSetStrategy{
-				Partition: func(v int32) *int32 { return &v }(1),
-			},
+		syncPodTemplate(desiredTemplate, currentTemplate)
+		logger.Info("Proxy pod template spec modified", "reason", reason)
+		err = r.k8sClient.Update(ctx, ss)
+		if err == nil {
+			logger.Info("Proxy statefulset successfully updated", "reason", reason)
 		}
-		return false, r.client.Update(ctx, ss)
+		return ctrl.Result{Requeue: true}, err
 	}
 
-	podList, err := r.client.ListProxyPods(ctx, ais)
+	podList, err := r.k8sClient.ListPods(ctx, ss)
 	if err != nil {
 		return
 	}
@@ -171,9 +203,8 @@ func (r *AIStoreReconciler) handleProxyImage(ctx context.Context, ais *aisv1.AIS
 		toUpdate         int
 		firstYetToUpdate bool
 	)
-	for idx := range podList.Items {
-		pod := podList.Items[idx]
-		if pod.Spec.Containers[0].Image == ais.Spec.NodeImage {
+	for pod := range cmn.IterPtr(podList.Items) {
+		if pod.Labels[appsv1.StatefulSetRevisionLabel] == ss.Status.UpdateRevision {
 			continue
 		}
 		toUpdate++
@@ -181,46 +212,55 @@ func (r *AIStoreReconciler) handleProxyImage(ctx context.Context, ais *aisv1.AIS
 	}
 
 	// NOTE: In case of statefulset rolling update strategy,
-	// pod are updated in decending of their pod index.
-	// This implies, pod with largest index is oldest proxy,
+	// pod are updated in descending order of their pod index.
+	// This implies the pod with the largest index is the oldest proxy,
 	// and we set it as a primary.
 	if toUpdate == 1 && firstYetToUpdate {
-		if err := r.setPrimaryTo(ctx, ais, *ss.Spec.Replicas-1); err != nil {
-			return false, err
+		podIndex := *ss.Spec.Replicas - 1
+		err = r.setPrimaryTo(ctx, ais, podIndex)
+		if err != nil {
+			logger.Error(err, "failed to set primary proxy", "podIndex", podIndex)
+			return
 		}
+		logger.Info("Removing partition from rolling update strategy")
 		// Revert statefulset partition spec
-		ss.Spec.UpdateStrategy = apiv1.StatefulSetUpdateStrategy{
-			Type: apiv1.RollingUpdateStatefulSetStrategyType,
-			RollingUpdate: &apiv1.RollingUpdateStatefulSetStrategy{
+		ss.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+			Type: appsv1.RollingUpdateStatefulSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
 				Partition: func(v int32) *int32 { return &v }(0),
 			},
 		}
 
-		if err := r.client.Update(ctx, ss); err != nil {
-			r.log.Error(err, "failed to update proxy statefulset update policy")
-			return false, err
+		err = r.k8sClient.Update(ctx, ss)
+		if err != nil {
+			logger.Error(err, "failed to update proxy statefulset update policy")
+			return
 		}
 
-		// Delete the first pod to update it's docker image.
-		return false, r.client.DeletePodIfExists(ctx, types.NamespacedName{
+		// Delete the first pod to update its docker image.
+		_, err = r.k8sClient.DeletePodIfExists(ctx, types.NamespacedName{
 			Namespace: ais.Namespace,
 			Name:      firstPodName,
 		})
+		if err != nil {
+			return
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
-	return toUpdate == 0, nil
+	if toUpdate == 0 {
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{Requeue: true}, nil
 }
 
 func (r *AIStoreReconciler) setPrimaryTo(ctx context.Context, ais *aisv1.AIStore, podIdx int32) error {
 	podName := proxy.PodName(ais, podIdx)
-	params, err := r.getAPIParams(ctx, ais)
+	apiClient, err := r.clientManager.GetClient(ctx, ais)
 	if err != nil {
-		err = fmt.Errorf("failed to obtain BaseAPIParams, err: %v", err)
 		return err
 	}
-
-	smap, err := aisapi.GetClusterMap(*params)
+	smap, err := apiClient.GetClusterMap()
 	if err != nil {
-		err = fmt.Errorf("failed to obtain smap, err: %v", err)
 		return err
 	}
 
@@ -232,7 +272,7 @@ func (r *AIStoreReconciler) setPrimaryTo(ctx context.Context, ais *aisv1.AIStore
 		if !strings.HasPrefix(node.ControlNet.Hostname, podName) {
 			continue
 		}
-		return aisapi.SetPrimaryProxy(*params, node.ID(), true /*force*/)
+		return apiClient.SetPrimaryProxy(node.ID(), node.PubNet.URL, true /*force*/)
 	}
 	return fmt.Errorf("couldn't find a proxy node for pod %q", podName)
 }
@@ -240,24 +280,24 @@ func (r *AIStoreReconciler) setPrimaryTo(ctx context.Context, ais *aisv1.AIStore
 // handleProxyScaledown decommissions all the proxy nodes that will be deleted due to scale down.
 // If the node being deleted is a primary, a new primary is designated before decommissioning.
 func (r *AIStoreReconciler) handleProxyScaledown(ctx context.Context, ais *aisv1.AIStore, actualSize int32) {
-	params, err := r.getAPIParams(ctx, ais)
+	logger := logf.FromContext(ctx)
+
+	apiClient, err := r.clientManager.GetClient(ctx, ais)
 	if err != nil {
-		r.log.Error(err, "failed to obtain BaseAPIParams")
 		return
 	}
-
-	smap, err := aisapi.GetClusterMap(*params)
+	smap, err := apiClient.GetClusterMap()
 	if err != nil {
-		r.log.Error(err, "failed to obtain smap")
 		return
 	}
 
 	decommissionNode := func(daemonID string) {
-		_, err := aisapi.DecommissionNode(*params, &aisapc.ActValRmNode{
+		rmAction := &aisapc.ActValRmNode{
 			DaemonID: daemonID,
-		})
-		if err != nil {
-			r.log.Error(err, "failed to decommission node - "+daemonID)
+		}
+		_, decommErr := apiClient.DecommissionNode(rmAction)
+		if decommErr != nil {
+			logger.Error(err, "failed to decommission node - "+daemonID)
 		}
 	}
 
@@ -285,27 +325,13 @@ func (r *AIStoreReconciler) handleProxyScaledown(ctx context.Context, ais *aisv1
 		if smap.InMaintOrDecomm(node) {
 			continue
 		}
-		err := aisapi.SetPrimaryProxy(*params, node.DaeID, true /*force*/)
+		err = apiClient.SetPrimaryProxy(node.DaeID, node.PubNet.URL, true /*force*/)
 		if err != nil {
-			r.log.Error(err, "failed to set primary as "+node.DaeID)
+			logger.Error(err, "failed to set primary as "+node.DaeID)
 			continue
 		}
 		decommissionNode(oldPrimaryID)
 	}
-}
-
-// Scale down the statefulset without decommissioning or resetting primary
-func (r *AIStoreReconciler) scaleProxiesToZero(ctx context.Context, ais *aisv1.AIStore) error {
-	r.log.Info("Scaling proxies to zero", "clusterName", ais.Name)
-	changed, err := r.client.UpdateStatefulSetReplicas(ctx, proxy.StatefulSetNSName(ais), 0)
-	if err != nil {
-		r.log.Error(err, "Failed to scale proxies to zero", "clusterName", ais.Name)
-	} else if changed {
-		r.log.Info("Proxy StatefulSet set to size 0", "name", ais.Name)
-	} else {
-		r.log.Info("Proxy StatefulSet already at size 0", "name", ais.Name)
-	}
-	return err
 }
 
 // enableProxyExternalService, creates a LoadBalancer service for proxy statefulset.
@@ -315,13 +341,13 @@ func (r *AIStoreReconciler) enableProxyExternalService(ctx context.Context,
 	ais *aisv1.AIStore,
 ) (ready bool, err error) {
 	proxyLBSVC := proxy.NewProxyLoadBalancerSVC(ais)
-	exists, err := r.client.CreateResourceIfNotExists(ctx, ais, proxyLBSVC)
-	if err != nil || !exists {
+	err = r.k8sClient.CreateOrUpdateResource(ctx, ais, proxyLBSVC)
+	if err != nil {
 		return
 	}
 
 	// If SVC already exists, check if external IP is allocated
-	proxyLBSVC, err = r.client.GetServiceByName(ctx, proxy.LoadBalancerSVCNSName(ais))
+	proxyLBSVC, err = r.k8sClient.GetService(ctx, proxy.LoadBalancerSVCNSName(ais))
 	if err != nil {
 		return
 	}

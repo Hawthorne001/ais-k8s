@@ -4,7 +4,7 @@
 AIStore is designed to run natively on Kubernetes.
 This folder contains **AIS Operator** that provides for bootstrapping, deployment, scaling up (and down), gracefully shutting down, upgrading, and managing resources of AIS clusters on Kubernetes. Technically, the project extends native Kubernetes API to automate management of all aspects of the AIStore lifecycle.
 
-> **WARNING:** AIS K8S Operator (or, simply, AIS Operator) is currently undergoing active development - non-backward compatible changes are to be expected at any moment.
+> **WARNING:** The AIS K8s Operator is currently undergoing active development. Please see the [compatibility readme](../docs/COMPATIBILITY.md) for info on upgrades and deprecations.
 
 ### Production Deployments
 If you want to deploy an AIStore Cluster in production setting we recommend deploying AIStore using our [ansible playbooks](../playbooks). We have provided detailed, step-by-step instructions for deploying AIStore on Kubernetes (K8s) in this [guide](../docs/README.md).
@@ -38,10 +38,10 @@ ais-operator-controller-manager-64c8c86f7b-8g8pj   2/2     Running   0          
 ### Deploy sample AIS Cluster
 **Note: If you are testing on minikube with multiple mounts, each mount defined in the AIS spec must have the same label**
 ```console
-$ kubectl apply -f config/samples/ais_v1beta1_aistore.yaml -n ais-operator-system
-$ kubectl get pods -n ais-operator-system
+$ kubectl create namespace ais
+$ kubectl apply -f config/samples/ais_v1beta1_aistore.yaml -n ais
+$ kubectl get pods -n ais
 NAME                                                  READY   STATUS    RESTARTS   AGE
-ais-operator-v2-controller-manager-64c8c86f7b-2t6jg   2/2     Running   0          5m23s
 aistore-sample-proxy-0                                1/1     Running   0          2m8s
 aistore-sample-target-0                               1/1     Running   0          2m21s
 ```
@@ -109,7 +109,29 @@ spec:
 
 The above spec will tell AIS to allow both mounts to share a single disk as long as the `label` is the same. If the `label` does not exist as an actual disk, the target pod will accept it and run in diskless mode without disk statistics. 
 
-> **WARNING:** `allowSharedNoDisks` is deprecated. If you are using a cluster with allowSharedNoDisks, first update the operator to the latest version for compatibility with the latest AIS versions. `allowSharedNoDisks` will be removed in a future update. 
+### Deploying cluster with distributed tracing enabled
+
+AIS Operator supports deploying AIStore with distributed tracing enabled. To get started, below instructions demonstrate how to enable distributed tracing and export traces to [Lightstep](https://docs.lightstep.com/).
+
+### Prerequisites
+- **Create a Lightstep Freemium Account**  
+  Sign up for a Lightstep account if you haven't already: [Lightstep Sign-Up](https://info.servicenow.com/developersignup.html).
+
+- **Obtain an Access Token**
+  Follow the instructions to generate an access token: [Lightstep Access Token Guide](https://docs.lightstep.com/docs/create-and-manage-access-tokens).
+
+
+```console
+kubectl create ns ais
+kubectl create secret generic -n ais lightstep-token --from-literal=token=<YOUR-LIGHTSTEP-TOKEN>
+kubectl apply -f config/samples/ais_v1beta1_aistore_tracing.yaml
+```
+
+After a successful deployment, traces will be available in the Lightstep dashboard.
+
+While Lightstep is used in the example for simplicity, AIStore supports exporting traces to any OpenTelemetry (OTEL)-compatible tracing solution.
+
+Refer to the [AIStore distributed-tracing](https://github.com/NVIDIA/aistore/blob/main/docs/distributed-tracing.md) doc for more details.
 
 ### Locally testing multi-node AIS cluster
 
@@ -131,9 +153,38 @@ spec:
 
 ### Config Backend Provider for GCP & AWS
 
-AIS operator supports GCP and AWS as the config backend provider. To enable the config backend provider, you need to create a secret with the corresponding credential file.
+AIS operator supports configuring  GCP and AWS as cloud providers for buckets. To enable the config for these providers, you need to create a secret with the corresponding credential file.
 
-```yaml
+#### Helm
+Helm deployments include a [chart](../helm/ais/charts/cloud-secrets/Chart.yaml) for generating these secrets based on local config and credentials. 
+  1. Update the environment in the provided [helmfile](../helm/ais/helmfile.yaml) with the `cloud-secrets` variable: 
+  ```yaml 
+      - cloud-secrets:
+        enabled: true
+  ```
+
+  2. Create a `<env_name>.yaml.gotmpl` file in [helm/ais/config/cloud/](../helm/ais/config/cloud/)
+
+  3. Add references to the local files you want to use. Example for sjc11 (be sure to update your paths correctly):
+  ```yaml
+  aws_config: |-
+  {{ readFile (printf "%s/.aws/sjc11/config" (env "HOME")) | indent 2 }}
+
+  aws_credentials: |-
+  {{ readFile (printf "%s/.aws/sjc11/credentials" (env "HOME")) | indent 2 }}
+
+  gcp_json: |-
+  {{ readFile (printf "%s/.gcp/sjc11/gcp.json" (env "HOME")) | indent 2 }}
+  ```
+
+#### Ansible
+For ansible deployments, see the [ais_aws_config](../playbooks/cloud/ais_aws_config.yml) and [ais_gcp_config](../playbooks/cloud/ais_gcp_config.yml) playbooks and the associated [README](../playbooks/cloud/README.md).
+
+
+#### Manual
+You can also create the secrets manually:
+
+```bash
 kubectl create secret -n ais-operator-system generic aws-creds \
   --from-file=config=$HOME/.aws/config \
   --from-file=credentials=$HOME/.aws/credentials
@@ -141,6 +192,8 @@ kubectl create secret -n ais-operator-system generic aws-creds \
 kubectl create secret -n ais-operator-system generic gcp-creds \
   --from-file=gcp.json=<path-to-gcp-credential-file>.json
 ```
+
+Once the secrets are created, update the AIS config yaml to reference the secrets:
 
 ```yaml
 # config/samples/ais_v1beta1_sample.yaml
@@ -154,16 +207,32 @@ spec:
 ...
 ```
 
+Finally, for **GCP** configs, the environment variable for the location **MUST** be provided through the `targetSpec.Env` section (For ansible, it is included in the default template). As of writing, the operator will always mount the provided secret to `/var/gcp`, so for a secret with `data.gcp.json` the resulting file location in the pod will be `var/gcp/gcp.json` :
+
+```yaml
+targetSpec:
+  env: 
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: "/var/gcp/gcp.json"
+```
+
+
 ### Enabling HTTPS for AIStore Deployment in Kubernetes
 
 While the examples above demonstrate running web servers that accept plain HTTP requests, you may want to enhance the security of your AIStore deployment by enabling HTTPS in a Kubernetes environment.
 
 **Important:** Before proceeding, please ensure that you have `cert-manager` installed.
 
-This specification defines a ClusterIssuer responsible for certificate issuance. It creates a Certificate, which is securely stored as a secret within the same namespace as the operator.
+This specification defines a ClusterIssuer responsible for certificate issuance. It creates a Certificate, which is securely stored as a Secret within the same namespace as the operator.
 
 ```bash
-kubectl apply -f config/samples/ais_v1beta1_aistore_tls.yaml
+kubectl apply -f config/samples/ais_v1beta1_aistore_tls_selfsigned.yaml
+```
+
+With `cert-manager csi-driver` installed, you can get signed certificates directly from your Issuer. The attached sample configuration contains RBAC and Issuer definition for use with Vault.
+
+```bash
+kubectl apply -f  config/samples/ais_v1beta1_aistore_tls_certmanager_csi.yaml
 ```
 
 **Testing Considerations:**
@@ -199,20 +268,99 @@ Any modifications to these type definitions requires updating of the auto-genera
 We use the following commands to achieve this:
 
 ```console
-$ # updating the auto-generated code
+$ # Updating the auto-generated code.
 $ make generate
-$ # updating the YAML manifests under config/
+$
+$ # Updating the YAML manifests under `config/`.
 $ make manifests
 ```
 
-For building and pushing the operator docker images, use the following commands:
+For building and pushing the operator Docker images, use the following commands:
 
 ```console
-$ # building the docker image
+$ # Building the Docker image.
 $ IMG=<REPOSITORY>/<IMAGE_TAG> make docker-build
-$ # pushing the docker image
+$
+$ # Pushing the Docker image.
 $ IMG=<REPOSITORY>/<IMAGE_TAG> make docker-push
 ```
+
+## Testing
+
+Testing the AIS operator is categorized into two groups: tests that require a Kubernetes cluster and those that do not.
+
+### Unit tests
+
+You can run unit tests without an existing cluster by executing:
+```console
+$ make test
+```
+
+You can also run unit tests with existing cluster with:
+```console
+$ export USE_EXISTING_CLUSTER=true 
+$ make test
+```
+
+### End-to-End (E2E) tests
+
+E2E tests require an existing Kubernetes cluster.
+To run them, execute:
+```console
+$ make test-e2e-short
+$
+$ # To use a custom Kubernetes `StorageClass` for tests set the environment 
+$ # variable `TEST_STORAGECLASS` as follows:
+$ TEST_STORAGECLASS="standard" make test-e2e-short
+```
+
+### `kind` cluster
+
+You can create a Kubernetes cluster using the [`kind` tool](https://kind.sigs.k8s.io/).
+To make `kind` work you need to have `docker` or `podman` installed.
+
+To bootstrap `kind` cluster run:
+```console
+$ make kind-setup
+$
+$ # You can also specify which Kubernetes version should be used to bootstrap the cluster.
+$ # For example:
+$ KIND_K8S_VERSION="v1.30.2" make kind-setup 
+```
+
+To tear down the local cluster after testing, run:
+```bash
+make kind-teardown
+```
+
+#### Running tests
+
+After that you can run tests:
+```console
+$ export USE_EXISTING_CLUSTER=true 
+$ make test
+```
+**Note:** Running E2E tests with a `kind` cluster might be possible, but we cannot guarantee full compatibility at this time.
+
+#### Testing local changes
+
+You can also build your local changes and test them using `kind` cluster:
+```console
+$ export IMG=ais-operator:testing
+$ make docker-build
+$ kind load docker-image --name ais-operator-test "${IMG}"
+$
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
+$ wait 20
+$
+$ # Make sure that in `config/manager/manager.yaml` you set `imagePullPolicy: Never`.
+$ # This makes sures that `kind` cluster won't be trying to download this image from outside. 
+$ make deploy
+```
+
+After that you can deploy your `AIStore` CRD and test if everything works properly.
+
+### `minikube` cluster
 
 To deploy and test local changes using `minikube`, we recommend enabling and using docker registry with minikube, by using the following commands:
 
@@ -226,21 +374,9 @@ $ docker kill registry-fwd || true
 $ # map localhost:5000 to the registry of minikube
 $ docker run --name registry-fwd --rm -d -it --network=host alpine ash -c "apk add socat && socat TCP-LISTEN:5000,reuseaddr,fork TCP:$(minikube ip):5000"
 
-
 $ # build, push and deploy operator
 $ IMG=localhost:5000/opr-test:1 make docker-build docker-push deploy
 ```
 
-## Testing
-
-Testing AIS operator requires having a running K8s cluster. You could run the tests using the following command:
-
-```console
-$ make test
-```
-Some tests require the K8s cluster to allocate external IP addresses. For a `minikube` based deployment, you could use `tunnel` as described [here](#enabling-external-access)
-
-To use a custom K8s storage-class for tests set the environment variable `TEST_STORAGECLASS` as follows:
-```console
-$ TEST_STORAGECLASS="standard" make test
-```
+Some tests require the K8s cluster to allocate external IP addresses.
+For a `minikube` based deployment, you could use `tunnel` as described [here](#enabling-external-access)

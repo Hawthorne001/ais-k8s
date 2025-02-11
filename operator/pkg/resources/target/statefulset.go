@@ -1,25 +1,22 @@
 // Package target contains k8s resources required for deploying AIS target daemons
 /*
- * Copyright (c) 2021-2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2021-2025, NVIDIA CORPORATION. All rights reserved.
  */
 package target
 
 import (
 	"log"
-	"strconv"
 	"strings"
 
 	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/v1beta1"
 	"github.com/ais-operator/pkg/resources/cmn"
-	"github.com/ais-operator/pkg/resources/proxy"
 	"gopkg.in/inf.v0"
 	apiv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func statefulSetName(ais *aisv1.AIStore) string {
@@ -42,126 +39,99 @@ func PodLabels(ais *aisv1.AIStore) map[string]string {
 }
 
 func NewTargetSS(ais *aisv1.AIStore) *apiv1.StatefulSet {
-	ls := PodLabels(ais)
-	var (
-		optionals   []corev1.EnvVar
-		targetSize                   = ais.GetTargetSize()
-		hostNetwork                  = false
-		dnsPolicy   corev1.DNSPolicy = corev1.DNSClusterFirst // default value for DNSPolicy
-	)
-	if ais.Spec.TargetSpec.HostPort != nil {
-		optionals = []corev1.EnvVar{
-			cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "status.hostIP"),
-		}
-	}
-	if ais.Spec.TLSSecretName != nil {
-		optionals = append(optionals, cmn.EnvFromValue(cmn.EnvUseHTTPS, "true"))
-	}
-
-	if ais.Spec.GCPSecretName != nil {
-		// TODO -- FIXME: Remove hardcoding for path
-		optionals = append(optionals, cmn.EnvFromValue(cmn.EnvGCPCredsPath, "/var/gcp/gcp.json"))
-	}
-
-	if ais.Spec.TargetSpec.HostNetwork != nil && *ais.Spec.TargetSpec.HostNetwork {
-		hostNetwork = true
-		dnsPolicy = corev1.DNSClusterFirstWithHostNet
-		optionals = append(optionals, cmn.EnvFromValue(cmn.EnvHostNetwork, "true"))
-	}
-
+	labels := PodLabels(ais)
 	return &apiv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      statefulSetName(ais),
 			Namespace: ais.Namespace,
-			Labels:    ls,
+			Labels:    labels,
 		},
 		Spec: apiv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
+				MatchLabels: labels,
 			},
 			ServiceName:          headlessSVCName(ais),
 			PodManagementPolicy:  apiv1.ParallelPodManagement,
-			Replicas:             &targetSize,
+			Replicas:             aisapc.Ptr(ais.GetTargetSize()),
 			VolumeClaimTemplates: targetVC(ais),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels:      ls,
-					Annotations: cmn.ParseAnnotations(ais),
+					Labels:      labels,
+					Annotations: cmn.PrepareAnnotations(ais.Spec.TargetSpec.Annotations, ais.Spec.NetAttachment),
 				},
-				Spec: corev1.PodSpec{
-					InitContainers: []corev1.Container{
-						{
-							Name:            "populate-env",
-							Image:           ais.Spec.InitImage,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Env: append([]corev1.EnvVar{
-								cmn.EnvFromFieldPath(cmn.EnvNodeName, "spec.nodeName"),
-								cmn.EnvFromFieldPath(cmn.EnvPodName, "metadata.name"),
-								cmn.EnvFromValue(cmn.EnvClusterDomain, ais.GetClusterDomain()),
-								cmn.EnvFromValue(cmn.EnvNS, ais.Namespace),
-								cmn.EnvFromValue(
-									cmn.EnvEnableExternalAccess,
-									strconv.FormatBool(ais.Spec.EnableExternalLB),
-								),
-								cmn.EnvFromValue(cmn.EnvServiceName, headlessSVCName(ais)),
-								cmn.EnvFromValue(cmn.EnvDaemonRole, aisapc.Target),
-								cmn.EnvFromValue(cmn.EnvProxyServiceName, proxy.HeadlessSVCName(ais)),
-								cmn.EnvFromValue(cmn.EnvProxyServicePort, ais.Spec.ProxySpec.ServicePort.String()),
-							}, optionals...),
-							Args: []string{
-								"-c",
-								"/bin/bash /var/ais_config_template/set_initial_target_env.sh",
-							},
-							Command:      []string{"/bin/bash"},
-							VolumeMounts: cmn.NewInitVolumeMounts(aisapc.Target),
-						},
-					},
-					Containers: []corev1.Container{
-						{
-							Name:            "ais-node",
-							Image:           ais.Spec.NodeImage,
-							ImagePullPolicy: corev1.PullAlways,
-							Env: append([]corev1.EnvVar{
-								cmn.EnvFromFieldPath(cmn.EnvPodName, "metadata.name"),
-								cmn.EnvFromValue(cmn.EnvClusterDomain, ais.GetClusterDomain()),
-								cmn.EnvFromValue(cmn.EnvNS, ais.Namespace),
-								cmn.EnvFromValue(cmn.EnvCIDR, ""), // TODO: add
-								cmn.EnvFromValue(cmn.EnvConfigFilePath, "/var/ais_config/ais.json"),
-								cmn.EnvFromValue(cmn.EnvShutdownMarkerPath, "/var/ais_config"),
-								cmn.EnvFromValue(cmn.EnvLocalConfigFilePath, "/var/ais_config/ais_local.json"),
-								cmn.EnvFromValue(cmn.EnvStatsDConfig, "/var/statsd_config/statsd.json"),
-								cmn.EnvFromValue(cmn.EnvDaemonRole, aisapc.Target),
-								cmn.EnvFromValue(cmn.EnvEnablePrometheus,
-									strconv.FormatBool(ais.Spec.EnablePromExporter != nil && *ais.Spec.EnablePromExporter)),
-								cmn.EnvFromValue(cmn.EnvProxyServiceName, proxy.HeadlessSVCName(ais)),
-								cmn.EnvFromValue(cmn.EnvProxyServicePort, ais.Spec.ProxySpec.ServicePort.String()),
-								cmn.EnvFromValue(cmn.EnvNodeServicePort, ais.Spec.TargetSpec.PublicPort.String()),
-							}, optionals...),
-							Ports:           cmn.NewDaemonPorts(ais.Spec.TargetSpec.DaemonSpec),
-							SecurityContext: ais.Spec.TargetSpec.ContainerSecurity,
-							VolumeMounts:    volumeMounts(ais),
-							Lifecycle:       cmn.NewAISNodeLifecycle(),
-							LivenessProbe:   cmn.NewAISLivenessProbe(),
-							ReadinessProbe:  readinessProbe(ais.Spec.TargetSpec.ServicePort, ais.Spec.TLSSecretName != nil),
-						},
-					},
-					HostNetwork:        hostNetwork,
-					DNSPolicy:          dnsPolicy,
-					ServiceAccountName: cmn.ServiceAccountName(ais),
-					SecurityContext:    ais.Spec.TargetSpec.SecurityContext,
-					Affinity:           createTargetAffinity(ais, ls),
-					NodeSelector:       ais.Spec.TargetSpec.NodeSelector,
-					Volumes:            cmn.NewAISVolumes(ais, aisapc.Target),
-					Tolerations:        ais.Spec.TargetSpec.Tolerations,
-					ImagePullSecrets:   ais.Spec.ImagePullSecrets,
-				},
+				Spec: *targetPodSpec(ais, labels),
 			},
 		},
 	}
 }
 
+func targetPodSpec(ais *aisv1.AIStore, labels map[string]string) *corev1.PodSpec {
+	spec := &corev1.PodSpec{
+		InitContainers: []corev1.Container{
+			{
+				Name:            "populate-env",
+				Image:           ais.Spec.InitImage,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Env:             NewInitContainerEnv(ais),
+				Args:            cmn.NewInitContainerArgs(aisapc.Target, ais.Spec.HostnameMap),
+				VolumeMounts:    cmn.NewInitVolumeMounts(),
+			},
+		},
+		Containers: []corev1.Container{
+			{
+				Name:            "ais-node",
+				Image:           ais.Spec.NodeImage,
+				ImagePullPolicy: corev1.PullAlways,
+				Command:         []string{"aisnode"},
+				Args:            cmn.NewAISContainerArgs(ais.GetTargetSize(), aisapc.Target),
+				Env:             NewAISContainerEnv(ais),
+				Ports:           cmn.NewDaemonPorts(&ais.Spec.TargetSpec.DaemonSpec),
+				Resources:       ais.Spec.TargetSpec.Resources,
+				SecurityContext: ais.Spec.TargetSpec.ContainerSecurity,
+				VolumeMounts:    volumeMounts(ais),
+				StartupProbe:    cmn.NewStartupProbe(ais, aisapc.Target),
+				LivenessProbe:   cmn.NewLivenessProbe(ais, aisapc.Target),
+				ReadinessProbe:  cmn.NewReadinessProbe(ais, aisapc.Target),
+			},
+		},
+		HostNetwork:        ais.UseHostNetwork(),
+		DNSPolicy:          ais.GetTargetDNSPolicy(),
+		ServiceAccountName: cmn.ServiceAccountName(ais),
+		SecurityContext:    ais.Spec.TargetSpec.SecurityContext,
+		Affinity:           createTargetAffinity(ais, labels),
+		NodeSelector:       ais.Spec.TargetSpec.NodeSelector,
+		Volumes:            cmn.NewAISVolumes(ais, aisapc.Target),
+		Tolerations:        ais.Spec.TargetSpec.Tolerations,
+		ImagePullSecrets:   ais.Spec.ImagePullSecrets,
+	}
+	if ais.Spec.LogSidecarImage != nil {
+		spec.Containers = append(spec.Containers, cmn.NewLogSidecar(*ais.Spec.LogSidecarImage, aisapc.Target))
+	}
+	return spec
+}
+
+func NewInitContainerEnv(ais *aisv1.AIStore) (initEnv []corev1.EnvVar) {
+	initEnv = cmn.CommonInitEnv(ais)
+	initEnv = append(initEnv, cmn.EnvFromValue(cmn.EnvServiceName, headlessSVCName(ais)))
+	if ais.Spec.TargetSpec.HostPort != nil {
+		initEnv = append(initEnv, cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "status.hostIP"))
+	}
+	if ais.UseHostNetwork() {
+		initEnv = append(initEnv, cmn.EnvFromValue(cmn.EnvHostNetwork, "true"))
+	}
+	return
+}
+
+func NewAISContainerEnv(ais *aisv1.AIStore) []corev1.EnvVar {
+	baseEnv := cmn.CommonEnv()
+	if ais.Spec.TargetSpec.HostPort != nil {
+		baseEnv = append(baseEnv, cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "status.hostIP"))
+	}
+	return cmn.MergeEnvVars(baseEnv, ais.Spec.TargetSpec.Env)
+}
+
 func volumeMounts(ais *aisv1.AIStore) []corev1.VolumeMount {
-	vols := cmn.NewAISVolumeMounts(&ais.Spec, aisapc.Target)
+	vols := cmn.NewAISVolumeMounts(ais, aisapc.Target)
 	for _, res := range ais.Spec.TargetSpec.Mounts {
 		vols = append(vols, corev1.VolumeMount{
 			Name:      ais.Name + strings.ReplaceAll(res.Path, "/", "-"),
@@ -169,28 +139,6 @@ func volumeMounts(ais *aisv1.AIStore) []corev1.VolumeMount {
 		})
 	}
 	return vols
-}
-
-func readinessProbe(port intstr.IntOrString, useHTTPS bool) *corev1.Probe {
-	scheme := corev1.URISchemeHTTP
-	if useHTTPS {
-		scheme = corev1.URISchemeHTTPS
-	}
-
-	return &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path:   "/v1/health?readiness=true",
-				Port:   port,
-				Scheme: scheme,
-			},
-		},
-		InitialDelaySeconds: 15,
-		PeriodSeconds:       5,
-		FailureThreshold:    8,
-		TimeoutSeconds:      5,
-		SuccessThreshold:    1,
-	}
 }
 
 func targetVC(ais *aisv1.AIStore) []corev1.PersistentVolumeClaim {
@@ -221,6 +169,11 @@ func targetVC(ais *aisv1.AIStore) []corev1.PersistentVolumeClaim {
 				Selector:         res.Selector,
 			},
 		})
+	}
+	if ais.Spec.StateStorageClass != nil {
+		if statePVC := cmn.DefineStatePVC(ais, ais.Spec.StateStorageClass); statePVC != nil {
+			pvcs = append(pvcs, *statePVC)
+		}
 	}
 	return pvcs
 }

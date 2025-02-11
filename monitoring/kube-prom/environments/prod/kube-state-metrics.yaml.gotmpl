@@ -1,0 +1,13 @@
+kube-state-metrics:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+            - key: {{ .Values.affinity.nodeLabelKey }}
+              operator: In
+              values:
+                - "{{ .Values.affinity.nodeLabelValue }}"
+  prometheus:
+    monitor:
+      enabled: false

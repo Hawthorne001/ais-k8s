@@ -1,0 +1,29 @@
+environments:
+  prod: {}
+  local: {}
+  remote: {}
+
+--- 
+
+repositories:
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+
+releases:
+  - name: alloy-config
+    namespace: monitoring
+    chart: ./config-chart  # Local chart for configmap
+    createNamespace: true
+    values:
+      - environment: {{ .Environment.Name }}
+      - ./environments/{{ .Environment.Name }}/values.yaml.gotmpl
+
+  - name: alloy
+    namespace: monitoring
+    createNamespace: true
+    chart: grafana/alloy
+    version: 0.10.1
+    values:
+      - ./environments/default/alloy-values.yaml
+    needs:
+      - alloy-config

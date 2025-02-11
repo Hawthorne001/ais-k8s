@@ -9,13 +9,6 @@ spec:
   # Add fields here
   size: {{ cluster_size }}
   configToUpdate:
-    mirror:
-      enabled: false
-    rebalance:
-      enabled: true
-      bundle_multiplier: 2
-    resilver:
-      enabled: true
 {% if protocol == "https" %}
     net:
       http:
@@ -27,7 +20,6 @@ spec:
         client_auth_tls: {{ client_auth_tls }}
 {% endif %}
 
-  enablePromExporter: false
   proxySpec:
     hostPort: 51080
     servicePort: 51080
@@ -47,6 +39,9 @@ spec:
 {% endif %}
 
   targetSpec:
+    env: 
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: /var/gcp/gcp.json
     hostPort: 51081
     servicePort: 51081
     portPublic: 51081
@@ -78,7 +73,13 @@ spec:
 
   nodeImage: "{{ node_image }}"
   initImage: "{{ init_image }}"
+  logSidecarImage: "{{ logs_image }}"
+{% if dynamic_state_sc != "" %}
+  stateStorageClass: {{ dynamic_state_sc }}
+{% else %}
   hostpathPrefix: "/etc/ais"
+{% endif %}
+  
 {% if protocol == "https" %}
   tlsSecretName: {{ tls_secret }}
 {% endif %}
@@ -88,6 +89,9 @@ spec:
 {% endif %}
 {% if gcp_secret_name != "" %}
   gcpSecretName: {{ gcp_secret_name }}
+{% endif %}
+{% if authn_secret_name != "" %}
+  authNSecretName: {{ authn_secret_name }}
 {% endif %}
 
   # To be able to access the AIS deployment outside kubernetes cluster, set:
