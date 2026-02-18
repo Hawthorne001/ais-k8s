@@ -1,11 +1,12 @@
 // Package e2e contains AIS operator integration tests
 /*
- * Copyright (c) 2021-2025, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2021-2026, NVIDIA CORPORATION. All rights reserved.
  */
 package e2e
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	aisapi "github.com/NVIDIA/aistore/api"
@@ -181,6 +182,7 @@ var _ = Describe("Run Controller", func() {
 			}()
 			cc.create()
 			cc.patchImagesToCurrent()
+			cc.verifyPodImages()
 
 			// Check we didn't rebalance at all (nothing else should trigger it on this test)
 			args := aisxact.ArgsMsg{Kind: aisapc.ActRebalance}
@@ -202,6 +204,30 @@ var _ = Describe("Run Controller", func() {
 			cc.create()
 			cc.verifyTargetPDBExists()
 			cc.patchImagesToCurrent()
+			cc.verifyPodImages()
+		})
+
+		It("Should allow reverting a broken upgrade", func(ctx context.Context) {
+			cluArgs.Size = 3
+			cc := newClientCluster(ctx, AISTestContext, WorkerCtx.K8sClient, cluArgs)
+			defer func() {
+				_ = cc.printLogs()
+				cc.destroyAndCleanup()
+			}()
+			cc.create()
+
+			By("Upgrade w/ non-existent images")
+			cc.patchImagesToBroken()
+
+			By("Wait for highest index proxy pod to be stuck in ImagePullBackOff")
+			stuckPodName := cc.cluster.ProxyStatefulSetName() + "-" + strconv.Itoa(int(cc.cluster.GetProxySize()-1))
+			Eventually(func() bool {
+				return cc.podHasImagePullError(stuckPodName)
+			}, 60*time.Second, 2*time.Second).Should(BeTrue(), "Pod %s should be stuck in ImagePullBackOff", stuckPodName)
+
+			By("Revert and verify cluster recovers")
+			cc.patchImagesToCurrent()
+			cc.verifyPodImages()
 		})
 	})
 
@@ -232,6 +258,35 @@ var _ = Describe("Run Controller", func() {
 					cc.scale(false, -1)
 				}
 				cc.createAndDestroyCluster(scaleDownCluster, nil)
+			})
+
+			It("Should allow reverting a broken scale-up", func(ctx context.Context) {
+				// MaxTargets=1 means PVs only created for 1 target
+				// Scaling to 2 targets means target-1 has no PV and will be stuck Pending
+				cluArgs.MaxTargets = 1
+				cluArgs.DisableTargetAntiAffinity = true
+				cc := newClientCluster(ctx, AISTestContext, WorkerCtx.K8sClient, cluArgs)
+				defer func() {
+					_ = cc.printLogs()
+					cc.destroyAndCleanup()
+				}()
+				cc.create()
+
+				By("Scale up beyond available PVs")
+				cc.attemptScale(false, 1)
+
+				By("Wait for at least one pod to be stuck in Pending")
+				Eventually(func() bool {
+					return cc.hasPendingPods()
+				}, 60*time.Second, 2*time.Second).Should(BeTrue(), "Should have pods stuck in Pending")
+
+				By("Verify pods stay stuck in Pending state")
+				Consistently(func() bool {
+					return cc.hasPendingPods()
+				}, 10*time.Second, 2*time.Second).Should(BeTrue(), "Pods should remain stuck in Pending")
+
+				By("Revert scale back to original size")
+				cc.scale(false, -1)
 			})
 		})
 
@@ -353,6 +408,23 @@ var _ = Describe("Run Controller", func() {
 			tutils.ObjectsShouldExist(cc.getBaseParams(), bck, names...)
 		})
 
+		It("Upgrade and scale-down in same patch should succeed", func(ctx context.Context) {
+			cluArgs.NodeImage = AISTestContext.PreviousNodeImage
+			cluArgs.InitImage = AISTestContext.PreviousInitImage
+			cluArgs.Size = 3
+			cc := newClientCluster(ctx, AISTestContext, WorkerCtx.K8sClient, cluArgs)
+			defer func() {
+				_ = cc.printLogs()
+				cc.destroyAndCleanup()
+			}()
+			cc.create()
+
+			By("Simultaneously upgrade images and scale down")
+			cc.patchImagesAndScaleDown(-1)
+			cc.verifyPodImages()
+			cc.verifyPodCounts()
+		})
+
 		It("Re-deploying with CleanupData should wipe out all data", func(ctx context.Context) {
 			// Default sets CleanupData to true -- wipe when we destroy the cluster
 			By("Deploy with CleanupData true")
@@ -455,4 +527,5 @@ var _ = Describe("Run Controller", func() {
 			cc.initClientAccess()
 		})
 	})
+
 })

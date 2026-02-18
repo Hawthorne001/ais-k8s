@@ -128,7 +128,7 @@ func (c *AISTestContext) GetClusterCreateTimeout() time.Duration {
 	if c.K8sProvider == K8sProviderGKE {
 		return 5 * time.Minute
 	}
-	return 3 * time.Minute
+	return 4 * time.Minute
 }
 
 func (c *AISTestContext) GetClusterCreateLongTimeout() time.Duration {

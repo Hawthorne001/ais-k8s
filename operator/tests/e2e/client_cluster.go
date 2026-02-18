@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	clientpkg "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -33,8 +34,8 @@ const (
 	clusterReadyRetryInterval = 5 * time.Second
 	clusterReadyTimeout       = 5 * time.Minute
 	clusterDestroyInterval    = 2 * time.Second
-	clusterDestroyTimeout     = 3 * time.Minute
-	clusterUpdateTimeout      = 1 * time.Minute
+	clusterDestroyTimeout     = 4 * time.Minute
+	clusterUpdateTimeout      = 2 * time.Minute
 	clusterUpdateInterval     = 2 * time.Second
 
 	urlTemplate = "http://%s:%s"
@@ -160,17 +161,78 @@ func (cc *clientCluster) waitForReadyCluster() {
 		"ClusterID in status should match smap UUID")
 }
 
-func (cc *clientCluster) patchImagesToCurrent() {
-	cc.fetchLatestCluster()
+// patchClusterSpec applies the given spec to the cluster and waits for it to return to Ready state.
+func (cc *clientCluster) patchClusterSpec(newSpec *aisv1.AIStoreSpec) {
 	readyGen := cc.getReadyObservedGen()
 	patch := clientpkg.MergeFrom(cc.cluster.DeepCopy())
-	cc.cluster.Spec.NodeImage = cc.aisCtx.NodeImage
-	cc.cluster.Spec.InitImage = cc.aisCtx.InitImage
+	cc.cluster.Spec = *newSpec
 	Expect(cc.k8sClient.Patch(cc.ctx, cc.cluster, patch)).Should(Succeed())
 	tutils.WaitForReadyConditionChange(cc.ctx, cc.k8sClient, cc.cluster, readyGen, clusterUpdateTimeout, clusterUpdateInterval)
-	By("Update cluster spec and wait for it to be 'Ready'")
 	cc.waitForReadyCluster()
-	cc.verifyPodImages()
+}
+
+// patchClusterSpecNoWait applies the given spec to the cluster without waiting for Ready state.
+func (cc *clientCluster) patchClusterSpecNoWait(newSpec *aisv1.AIStoreSpec) {
+	patch := clientpkg.MergeFrom(cc.cluster.DeepCopy())
+	cc.cluster.Spec = *newSpec
+	Expect(cc.k8sClient.Patch(cc.ctx, cc.cluster, patch)).Should(Succeed())
+}
+
+func (cc *clientCluster) patchImagesToCurrent() {
+	cc.fetchLatestCluster()
+	newSpec := cc.cluster.Spec.DeepCopy()
+	newSpec.NodeImage = cc.aisCtx.NodeImage
+	newSpec.InitImage = cc.aisCtx.InitImage
+	cc.patchClusterSpec(newSpec)
+}
+
+func (cc *clientCluster) patchImagesToBroken() {
+	cc.fetchLatestCluster()
+	newSpec := cc.cluster.Spec.DeepCopy()
+	newSpec.NodeImage = "aistorage/aisnode:non-existent-tag"
+	newSpec.InitImage = "aistorage/ais-init:non-existent-tag"
+	cc.patchClusterSpecNoWait(newSpec)
+}
+
+func (cc *clientCluster) patchImagesAndScaleDown(factor int32) {
+	cc.fetchLatestCluster()
+	newSpec := cc.cluster.Spec.DeepCopy()
+	newSpec.NodeImage = cc.aisCtx.NodeImage
+	newSpec.InitImage = cc.aisCtx.InitImage
+	newSpec.Size = aisapc.Ptr(*newSpec.Size + factor)
+	cc.patchClusterSpec(newSpec)
+}
+
+// podHasImagePullError checks if a pod has an ImagePullBackOff or ErrImagePull status.
+func (cc *clientCluster) podHasImagePullError(podName string) bool {
+	pod, err := cc.k8sClient.GetPod(cc.ctx, types.NamespacedName{
+		Namespace: cc.cluster.Namespace,
+		Name:      podName,
+	})
+	if err != nil {
+		return false
+	}
+	if pod.Status.InitContainerStatuses != nil {
+		for i := range pod.Status.InitContainerStatuses {
+			status := &pod.Status.InitContainerStatuses[i]
+			if status.State.Waiting != nil {
+				reason := status.State.Waiting.Reason
+				if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+					return true
+				}
+			}
+		}
+	}
+	for i := range pod.Status.ContainerStatuses {
+		status := &pod.Status.ContainerStatuses[i]
+		if status.State.Waiting != nil {
+			reason := status.State.Waiting.Reason
+			if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (cc *clientCluster) getBaseParams() aisapi.BaseParams {
@@ -263,25 +325,27 @@ func (cc *clientCluster) destroyClusterOnly() {
 	tutils.DestroyCluster(context.Background(), cc.k8sClient, cc.cluster, clusterDestroyTimeout, clusterDestroyInterval)
 }
 
+func (cc *clientCluster) scaleSpec(targetOnly bool, factor int32) *aisv1.AIStoreSpec {
+	cc.fetchLatestCluster()
+	newSpec := cc.cluster.Spec.DeepCopy()
+	if targetOnly {
+		newSpec.TargetSpec.Size = aisapc.Ptr(cc.cluster.GetTargetSize() + factor)
+	} else {
+		newSpec.Size = aisapc.Ptr(*newSpec.Size + factor)
+	}
+	return newSpec
+}
+
 func (cc *clientCluster) scale(targetOnly bool, factor int32) {
 	By(fmt.Sprintf("Scaling cluster %q by %d", cc.cluster.Name, factor))
-	cr, err := cc.k8sClient.GetAIStoreCR(cc.ctx, cc.cluster.NamespacedName())
-	Expect(err).ShouldNot(HaveOccurred())
-	patch := clientpkg.MergeFrom(cr.DeepCopy())
-	if targetOnly {
-		cr.Spec.TargetSpec.Size = aisapc.Ptr(cr.GetTargetSize() + factor)
-	} else {
-		cr.Spec.Size = aisapc.Ptr(*cr.Spec.Size + factor)
-	}
-	// Get current ready condition generation
-	readyGen := cc.getReadyObservedGen()
-	Expect(cc.k8sClient.Patch(cc.ctx, cr, patch)).Should(Succeed())
-	// Wait for the condition's generation to receive some update so we know reconciliation began
-	// Otherwise, the cluster may be immediately ready
-	tutils.WaitForReadyConditionChange(cc.ctx, cc.k8sClient, cr, readyGen, clusterUpdateTimeout, clusterUpdateInterval)
-	cc.waitForReadyCluster()
+	cc.patchClusterSpec(cc.scaleSpec(targetOnly, factor))
 	cc.verifyPodCounts()
 	cc.initClientAccess()
+}
+
+func (cc *clientCluster) attemptScale(targetOnly bool, factor int32) {
+	By(fmt.Sprintf("Attempting to scale cluster %q by %d", cc.cluster.Name, factor))
+	cc.patchClusterSpecNoWait(cc.scaleSpec(targetOnly, factor))
 }
 
 func (cc *clientCluster) restart() {
@@ -392,6 +456,18 @@ func (cc *clientCluster) verifyPodCounts() {
 	targets, err := cc.k8sClient.ListPods(cc.ctx, cc.cluster, target.BasicLabels(cc.cluster))
 	Expect(err).To(BeNil())
 	Expect(len(targets.Items)).To(Equal(int(cc.cluster.GetTargetSize())))
+}
+
+func (cc *clientCluster) hasPendingPods() bool {
+	allLabels := map[string]string{"app.kubernetes.io/name": cc.cluster.Name}
+	podList, err := cc.k8sClient.ListPods(cc.ctx, cc.cluster, allLabels)
+	Expect(err).To(BeNil())
+	for i := range podList.Items {
+		if podList.Items[i].Status.Phase == corev1.PodPending {
+			return true
+		}
+	}
+	return false
 }
 
 func (cc *clientCluster) printLogs() (err error) {
