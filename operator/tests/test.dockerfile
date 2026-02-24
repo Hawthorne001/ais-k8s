@@ -3,7 +3,7 @@ FROM docker.io/library/golang:${GO_VERSION}-alpine
 
 RUN apk add --no-cache bash curl git make which
 
-ENV LOCALBIN="/bin"
+ENV LOCAL_BIN="/bin"
 
 COPY . /operator
 

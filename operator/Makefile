@@ -18,12 +18,6 @@ ENVTEST_K8S_VERSION = 1.33.0
 # KIND_K8S_VERSION refers to the version of container images for nodes that are being created during cluster setup.
 KIND_K8S_VERSION ?= v1.33.0
 
-# LPP_VERSION refers to the version of local-path-provisioner to be used for operator testing.
-LPP_VERSION ?= v0.0.34
-
-# CERT_MANAGER_VERSION refers to the version of cert-manager to be used for operator testing.
-CERT_MANAGER_VERSION ?= v1.19.3
-
 SCRIPTS_DIR = ./scripts
 TESTS_DIR = ./tests
 
@@ -91,7 +85,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 .PHONY: generate
 generate: controller-gen mockgen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-	PATH=$(LOCALBIN):$$PATH go generate ./...
+	PATH=$(LOCAL_BIN):$$PATH go generate ./...
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -104,14 +98,14 @@ vet: ## Run go vet against code.
 .PHONY: test test-e2e-bootstrap test-e2e-teardown test-e2e test-e2e-in-cluster
 test: manifests generate envtest ## Run tests.
 	@[[ $$(command -v ginkgo) ]] || go install github.com/onsi/ginkgo/v2/ginkgo
-	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" ginkgo --vv --skip-package e2e --coverprofile cover.out ./...
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCAL_BIN) -p path)" ginkgo --vv --skip-package e2e --coverprofile cover.out ./...
 
 test-e2e-bootstrap: lpp-setup lb-setup cert-manager-setup
 
 test-e2e-teardown: cert-manager-teardown lpp-teardown lb-teardown
 
 test-e2e: manifests generate envtest
-	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(SHELL) "$(SCRIPTS_DIR)/test.sh" $(E2E_MODE)
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCAL_BIN) -p path)" $(SHELL) "$(SCRIPTS_DIR)/test.sh" $(E2E_MODE)
 
 test-e2e-in-cluster:
 	@$(SHELL) $(TEST_IN_CLUSTER_SCRIPT)
@@ -126,26 +120,26 @@ kind-teardown: kind
 
 .PHONY: lpp-setup lpp-teardown
 lpp-setup:
-	$(KUBECTL) apply -f "https://raw.githubusercontent.com/rancher/local-path-provisioner/$(LPP_VERSION)/deploy/local-path-storage.yaml"
+	$(KUBECTL) apply -f "$(LPP_MANIFEST_SRC)"
 
 lpp-teardown:
-	-$(KUBECTL) delete -f "https://raw.githubusercontent.com/rancher/local-path-provisioner/$(LPP_VERSION)/deploy/local-path-storage.yaml" --ignore-not-found
+	-$(KUBECTL) delete -f "$(LPP_MANIFEST_SRC)" --ignore-not-found
 
 .PHONY: lb-setup lb-teardown
 lb-setup: cloud-provider-kind
-	@$(SHELL) $(SCRIPTS_DIR)/cloud-provider-kind.sh start $(CLOUD_PROVIDER_KIND) $(LOCALBIN)
+	@$(SHELL) $(SCRIPTS_DIR)/cloud-provider-kind.sh start $(CLOUD_PROVIDER_KIND) $(LOCAL_BIN)
 
 lb-teardown:
-	@$(SHELL) $(SCRIPTS_DIR)/cloud-provider-kind.sh stop $(CLOUD_PROVIDER_KIND) $(LOCALBIN)
+	@$(SHELL) $(SCRIPTS_DIR)/cloud-provider-kind.sh stop $(CLOUD_PROVIDER_KIND) $(LOCAL_BIN)
 
 .PHONY: cert-manager-setup cert-manager-teardown
 cert-manager-setup:
-	$(KUBECTL) apply -f "https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml"
+	$(KUBECTL) apply -f "$(CERT_MANAGER_MANIFEST_SRC)"
 	@echo "Waiting for cert-manager to be ready..."
 	$(KUBECTL) wait --for=condition=available --timeout=180s -n cert-manager deployment -l app.kubernetes.io/instance=cert-manager
 
 cert-manager-teardown:
-	-$(KUBECTL) delete -f "https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml" --ignore-not-found
+	-$(KUBECTL) delete -f "$(CERT_MANAGER_MANIFEST_SRC)" --ignore-not-found
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -279,101 +273,124 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 ##@ Dependencies
 
 ## Location to install dependencies to
-LOCALBIN ?= $(shell pwd)/bin
-$(LOCALBIN):
-	mkdir -p $(LOCALBIN)
+LOCAL_BIN ?= $(shell pwd)/bin
+$(LOCAL_BIN):
+	mkdir -p $(LOCAL_BIN)
+
+## Installer manifests
+LOCAL_MANIFESTS ?= $(shell pwd)/manifests
+$(LOCAL_MANIFESTS):
+	mkdir -p $(LOCAL_MANIFESTS)
 
 ## Tool Binaries
+CLOUD_PROVIDER_KIND ?= $(LOCAL_BIN)/cloud-provider-kind
+CONTROLLER_GEN ?= $(LOCAL_BIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
+ENVTEST ?= $(LOCAL_BIN)/setup-envtest-$(ENVTEST_VERSION)
+GOLANGCI_LINT ?= $(LOCAL_BIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+GOMPLATE ?= $(LOCAL_BIN)/gomplate
+HELM = $(LOCAL_BIN)/helm
+HELMIFY = $(LOCAL_BIN)/helmify
+KIND ?= $(LOCAL_BIN)/kind
 KUBECTL ?= kubectl
-KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
-KUBEBUILDER ?= $(LOCALBIN)/kubebuilder-$(KUBEBUILDER_VERSION)
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
-ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
-MOCKGEN ?= $(LOCALBIN)/mockgen-$(MOCKGEN_VERSION)
-GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
-GOMPLATE ?= $(LOCALBIN)/gomplate
-HELMIFY = $(LOCALBIN)/helmify
-HELM = $(LOCALBIN)/helm
-KIND ?= $(LOCALBIN)/kind
-CLOUD_PROVIDER_KIND ?= $(LOCALBIN)/cloud-provider-kind
-YQ ?= $(LOCALBIN)/yq
+KUSTOMIZE ?= $(LOCAL_BIN)/kustomize-$(KUSTOMIZE_VERSION)
+KUBEBUILDER ?= $(LOCAL_BIN)/kubebuilder-$(KUBEBUILDER_VERSION)
+MOCKGEN ?= $(LOCAL_BIN)/mockgen-$(MOCKGEN_VERSION)
+YQ ?= $(LOCAL_BIN)/yq
 
 ## Tool Versions
+CERT_MANAGER_VERSION ?= v1.19.3
+CLOUD_PROVIDER_KIND_VERSION ?= v0.10.0
+CONTROLLER_TOOLS_VERSION ?= v0.20.0
+ENVTEST_VERSION ?= release-0.23
 GOLANGCI_LINT_VERSION ?= v2.10.1
 GOMPLATE_VERSION ?= v5.0.0
 HELM_VERSION ?= v3.20.0
 HELMIFY_VERSION ?= v0.4.19
+KIND_VERSION ?= v0.31.0
 KUSTOMIZE_VERSION ?= v5.8.0
 KUBEBUILDER_VERSION ?= v4.11.1
-CONTROLLER_TOOLS_VERSION ?= v0.20.0
-ENVTEST_VERSION ?= release-0.23
+LPP_VERSION ?= v0.0.34
 MOCKGEN_VERSION ?= v0.6.0
-KIND_VERSION ?= v0.31.0
-CLOUD_PROVIDER_KIND_VERSION ?= v0.10.0
 YQ_VERSION ?= v4.52.2
+
+# Manifest downloads - use local manifest if it exists, else use the URL
+CERT_MANAGER_MANIFEST_URL = https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+CERT_MANAGER_MANIFEST = $(wildcard $(LOCAL_MANIFESTS)/cert-manager.yaml)
+CERT_MANAGER_MANIFEST_SRC = $(if $(CERT_MANAGER_MANIFEST),$(CERT_MANAGER_MANIFEST),$(CERT_MANAGER_MANIFEST_URL))
+
+LPP_MANIFEST_URL = https://raw.githubusercontent.com/rancher/local-path-provisioner/$(LPP_VERSION)/deploy/local-path-storage.yaml
+LPP_MANIFEST = $(wildcard $(LOCAL_MANIFESTS)/local-path-storage.yaml)
+LPP_MANIFEST_SRC = $(if $(LPP_MANIFEST),$(LPP_MANIFEST),$(LPP_MANIFEST_URL))
+
+# Caches all the necessary tools for in-cluster testing and manifests for pre-req installation
+.PHONY: cache-test-deps
+cache-test-deps: $(LOCAL_BIN) $(LOCAL_MANIFESTS)
+	make kind kustomize controller-gen envtest golangci-lint mockgen cloud-provider-kind
+	curl -sSfL -o $(LOCAL_MANIFESTS)/cert-manager.yaml "$(CERT_MANAGER_MANIFEST_URL)"
+	curl -sSfL -o $(LOCAL_MANIFESTS)/local-path-storage.yaml "$(LPP_MANIFEST_URL)"
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
-$(KUSTOMIZE): $(LOCALBIN)
+$(KUSTOMIZE): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(KUSTOMIZE) sigs.k8s.io/kustomize/kustomize/v5 $(KUSTOMIZE_VERSION)
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-$(CONTROLLER_GEN): $(LOCALBIN)
+$(CONTROLLER_GEN): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(CONTROLLER_GEN) sigs.k8s.io/controller-tools/cmd/controller-gen $(CONTROLLER_TOOLS_VERSION)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
+$(ENVTEST): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(ENVTEST) sigs.k8s.io/controller-runtime/tools/setup-envtest $(ENVTEST_VERSION)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 	@echo "Using golangci-lint: $(GOLANGCI_LINT)"
 
-$(GOLANGCI_LINT): $(LOCALBIN)
+$(GOLANGCI_LINT): $(LOCAL_BIN)
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | \
-		sh -s -- -b $(LOCALBIN) $(GOLANGCI_LINT_VERSION)
-	@mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT)
-	@ln -sf $(notdir $(GOLANGCI_LINT)) $(LOCALBIN)/golangci-lint
+		sh -s -- -b $(LOCAL_BIN) $(GOLANGCI_LINT_VERSION)
+	@mv $(LOCAL_BIN)/golangci-lint $(GOLANGCI_LINT)
+	@ln -sf $(notdir $(GOLANGCI_LINT)) $(LOCAL_BIN)/golangci-lint
 
 .PHONY: kubebuilder
 kubebuilder: $(KUBEBUILDER) ## Download kubebuilder locally if necessary.
-$(KUBEBUILDER): $(LOCALBIN)
+$(KUBEBUILDER): $(LOCAL_BIN)
 	curl -L -o kubebuilder https://github.com/kubernetes-sigs/kubebuilder/releases/download/$(KUBEBUILDER_VERSION)/kubebuilder_$(OS)_$(ARCH)
 	chmod +x kubebuilder && mv kubebuilder $(KUBEBUILDER)
 
 .PHONY: helm
 helm:
-	./scripts/install_helm.sh $(LOCALBIN) $(HELM_VERSION)
+	./scripts/install_helm.sh $(LOCAL_BIN) $(HELM_VERSION)
 
 .PHONY: helmify
 helmify: $(HELMIFY)
-$(HELMIFY): $(LOCALBIN)
+$(HELMIFY): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(HELMIFY) github.com/arttor/helmify/cmd/helmify $(HELMIFY_VERSION)
 
 .PHONY: mockgen
 mockgen: $(MOCKGEN) ## Download mockgen locally if necessary.
-$(MOCKGEN): $(LOCALBIN)
+$(MOCKGEN): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(MOCKGEN) go.uber.org/mock/mockgen $(MOCKGEN_VERSION)
-	@ln -sf $(notdir $(MOCKGEN)) $(LOCALBIN)/mockgen
+	@ln -sf $(notdir $(MOCKGEN)) $(LOCAL_BIN)/mockgen
 
 .PHONY: kind
 kind: $(KIND)
-$(KIND): $(LOCALBIN)
+$(KIND): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(KIND) sigs.k8s.io/kind $(KIND_VERSION)
 
 .PHONY: cloud-provider-kind
 cloud-provider-kind: $(CLOUD_PROVIDER_KIND)
-$(CLOUD_PROVIDER_KIND): $(LOCALBIN)
+$(CLOUD_PROVIDER_KIND): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(CLOUD_PROVIDER_KIND) sigs.k8s.io/cloud-provider-kind $(CLOUD_PROVIDER_KIND_VERSION)
 
 .PHONY: yq
 yq: $(YQ) ## Download yq locally if necessary.
-$(YQ): $(LOCALBIN)
+$(YQ): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(YQ) github.com/mikefarah/yq/v4 $(YQ_VERSION)
 
 .PHONY: gomplate
 gomplate: $(GOMPLATE) ## Download gomplate locally if necessary.
-$(GOMPLATE): $(LOCALBIN)
+$(GOMPLATE): $(LOCAL_BIN)
 	./scripts/go_install_tool.sh $(GOMPLATE) github.com/hairyhenderson/gomplate/v5/cmd/gomplate $(GOMPLATE_VERSION)

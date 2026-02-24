@@ -3,9 +3,9 @@ set -euo pipefail
 
 ACTION="${1:-}"
 BINARY="${2:-}"
-LOCALBIN="${3:-./bin}"
-PID_FILE="${LOCALBIN}/cloud-provider-kind.pid"
-LOG_FILE="${LOCALBIN}/cloud-provider-kind.log"
+LOCAL_BIN="${3:-./bin}"
+PID_FILE="${LOCAL_BIN}/cloud-provider-kind.pid"
+LOG_FILE="${LOCAL_BIN}/cloud-provider-kind.log"
 
 start() {
   [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null && \

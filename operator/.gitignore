@@ -7,6 +7,9 @@
 bin/
 Dockerfile.cross
 
+# Cached manifests for test runs
+manifests/
+
 # Test binary, built with `go test -c`
 *.test
 
