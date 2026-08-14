@@ -36,10 +36,8 @@ type (
 	AdminClientSpec               = aisv1.AdminClientSpec
 	ArchConfToUpdate              = aisv1.ArchConfToUpdate
 	AuthConfToUpdate              = aisv1.AuthConfToUpdate
-	AuthServerLoginConf           = aisv1.AuthServerLoginConf
 	AuthSignatureConfToUpdate     = aisv1.AuthSignatureConfToUpdate
 	AuthSpec                      = aisv1.AuthSpec
-	AuthTLSConfig                 = aisv1.AuthTLSConfig
 	AutoScaleConf                 = aisv1.AutoScaleConf
 	AutoScaleStatus               = aisv1.AutoScaleStatus
 	BurstyToUpdate                = aisv1.BurstyToUpdate
@@ -100,11 +98,9 @@ type (
 	TLSSpec                       = aisv1.TLSSpec
 	TargetSpec                    = aisv1.TargetSpec
 	TimeoutConfToUpdate           = aisv1.TimeoutConfToUpdate
-	TokenExchangeAuth             = aisv1.TokenExchangeAuth
 	TraceExporterAuthConfToUpdate = aisv1.TraceExporterAuthConfToUpdate
 	TracingConfToUpdate           = aisv1.TracingConfToUpdate
 	TransportConfToUpdate         = aisv1.TransportConfToUpdate
-	UsernamePasswordAuth          = aisv1.UsernamePasswordAuth
 	VersionConfToUpdate           = aisv1.VersionConfToUpdate
 	WritePolicyConfToUpdate       = aisv1.WritePolicyConfToUpdate
 	XactConfToUpdate              = aisv1.XactConfToUpdate

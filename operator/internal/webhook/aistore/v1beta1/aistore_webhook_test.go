@@ -137,19 +137,6 @@ func authProfile(name string) *authv1alpha1.AIStoreAuthProfile {
 	}
 }
 
-func secretAIS(secretName string, secretNS *string) *aisv1.AIStore {
-	ais := &aisv1.AIStore{}
-	ais.Name = "cluster"
-	ais.Namespace = tenantNS
-	ais.Spec.Auth = &aisv1.AuthSpec{
-		UsernamePassword: &aisv1.UsernamePasswordAuth{
-			SecretName:      secretName,
-			SecretNamespace: secretNS,
-		},
-	}
-	return ais
-}
-
 func profileAIS(profileName string) *aisv1.AIStore {
 	ais := &aisv1.AIStore{}
 	ais.Name = "cluster"
@@ -166,82 +153,6 @@ func profileObjs(ais *aisv1.AIStore) []client.Object {
 		return nil
 	}
 	return []client.Object{authProfile(ais.Spec.Auth.ProfileRef.Name)}
-}
-
-func TestValidateAuthSecret(t *testing.T) {
-	ctx := admissionCtx()
-
-	for _, tt := range []struct {
-		name       string
-		prev       *aisv1.AIStore
-		ais        *aisv1.AIStore
-		wantReview *authorizationv1.ResourceAttributes
-	}{
-		{
-			name: "no auth on create",
-			ais:  &aisv1.AIStore{},
-		},
-		{
-			name: "auth on create",
-			ais:  secretAIS("creds", aisapc.Ptr(tenantNS)),
-			wantReview: &authorizationv1.ResourceAttributes{
-				Verb: "get", Resource: "secrets", Namespace: tenantNS, Name: "creds",
-			},
-		},
-		{
-			name: "secret namespace defaults to the cluster namespace",
-			ais:  secretAIS("creds", nil),
-			wantReview: &authorizationv1.ResourceAttributes{
-				Verb: "get", Resource: "secrets", Namespace: tenantNS, Name: "creds",
-			},
-		},
-		{
-			name: "auth added on update",
-			prev: &aisv1.AIStore{},
-			ais:  secretAIS("creds", aisapc.Ptr(tenantNS)),
-			wantReview: &authorizationv1.ResourceAttributes{
-				Verb: "get", Resource: "secrets", Namespace: tenantNS, Name: "creds",
-			},
-		},
-		{
-			name: "auth removed on update",
-			prev: secretAIS("creds", aisapc.Ptr(tenantNS)),
-			ais:  &aisv1.AIStore{},
-		},
-		{
-			name: "unchanged secret ref on update",
-			prev: secretAIS("creds", aisapc.Ptr(tenantNS)),
-			ais:  secretAIS("creds", aisapc.Ptr(tenantNS)),
-		},
-		{
-			name: "changed secret name on update",
-			prev: secretAIS("creds", aisapc.Ptr(tenantNS)),
-			ais:  secretAIS("other-creds", aisapc.Ptr(tenantNS)),
-			wantReview: &authorizationv1.ResourceAttributes{
-				Verb: "get", Resource: "secrets", Namespace: tenantNS, Name: "other-creds",
-			},
-		},
-		{
-			name: "changed secret namespace on update",
-			prev: secretAIS("creds", aisapc.Ptr(tenantNS)),
-			ais:  secretAIS("creds", aisapc.Ptr("other")),
-			wantReview: &authorizationv1.ResourceAttributes{
-				Verb: "get", Resource: "secrets", Namespace: "other", Name: "creds",
-			},
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-			webhook, reviews := newSARWebhook(t, true)
-			g.Expect(webhook.validateAuthSecret(ctx, tt.prev, tt.ais)).To(Succeed())
-			if tt.wantReview == nil {
-				g.Expect(*reviews).To(BeEmpty())
-				return
-			}
-			g.Expect(*reviews).To(HaveLen(1))
-			g.Expect((*reviews)[0].Spec.ResourceAttributes).To(Equal(tt.wantReview))
-		})
-	}
 }
 
 func TestValidateAuthProfile(t *testing.T) {
@@ -307,6 +218,16 @@ func TestValidateAuthProfile(t *testing.T) {
 			g.Expect((*reviews)[0].Spec.ResourceAttributes).To(Equal(tt.wantReview))
 		})
 	}
+
+	t.Run("profile ref is rejected when unauthorized", func(t *testing.T) {
+		g := NewWithT(t)
+		webhook, reviews := newSARWebhook(t, false)
+		err := webhook.validateAuthProfile(ctx, nil, profileAIS("prod-authn"))
+		g.Expect(*reviews).To(HaveLen(1))
+		g.Expect((*reviews)[0].Spec.ResourceAttributes).To(Equal(profileAttrs("prod-authn")))
+		g.Expect(apierrors.IsInvalid(err)).To(BeTrue())
+		g.Expect(err).To(MatchError(ContainSubstring(`is not authorized to use aistoreauthprofiles resource "prod-authn"`)))
+	})
 }
 
 func TestValidateAuthProfileExistence(t *testing.T) {
@@ -342,75 +263,5 @@ func TestValidateAuthProfileExistence(t *testing.T) {
 		err := webhook.validateAuthProfileExistence(ctx, path, "cluster", "prod-authn")
 		g.Expect(apierrors.IsInternalError(err)).To(BeTrue())
 		g.Expect(err).To(MatchError(ContainSubstring(`checking AIStoreAuthProfile "prod-authn"`)))
-	})
-}
-
-func TestValidateAuthAccess(t *testing.T) {
-	ctx := admissionCtx()
-
-	t.Run("no auth requires no review", func(t *testing.T) {
-		g := NewWithT(t)
-		webhook, reviews := newSARWebhook(t, false)
-		g.Expect(webhook.validateAuthAccess(ctx, nil, &aisv1.AIStore{})).To(Succeed())
-		g.Expect(*reviews).To(BeEmpty())
-	})
-
-	t.Run("secret is allowed when authorized", func(t *testing.T) {
-		g := NewWithT(t)
-		webhook, _ := newSARWebhook(t, true)
-		g.Expect(webhook.validateAuthAccess(ctx, nil, secretAIS("creds", aisapc.Ptr(tenantNS)))).To(Succeed())
-	})
-
-	t.Run("secret is rejected when unauthorized", func(t *testing.T) {
-		g := NewWithT(t)
-		webhook, _ := newSARWebhook(t, false)
-		err := webhook.validateAuthAccess(ctx, nil, secretAIS("creds", aisapc.Ptr(tenantNS)))
-		g.Expect(err).To(MatchError(ContainSubstring(`is not authorized to get secrets resource "creds"`)))
-	})
-
-	t.Run("changed secret ref on update requires SAR", func(t *testing.T) {
-		g := NewWithT(t)
-		prev := secretAIS("creds", aisapc.Ptr(tenantNS))
-		ais := secretAIS("other-creds", aisapc.Ptr(tenantNS))
-		webhook, _ := newSARWebhook(t, false)
-		g.Expect(webhook.validateAuthAccess(ctx, prev, ais)).To(HaveOccurred())
-	})
-
-	t.Run("profile ref is rejected when unauthorized", func(t *testing.T) {
-		g := NewWithT(t)
-		webhook, _ := newSARWebhook(t, false)
-		err := webhook.validateAuthAccess(ctx, nil, profileAIS("prod-authn"))
-		g.Expect(err).To(MatchError(ContainSubstring(`is not authorized to use aistoreauthprofiles resource "prod-authn"`)))
-	})
-
-	t.Run("both refs are reviewed", func(t *testing.T) {
-		g := NewWithT(t)
-		ais := secretAIS("creds", aisapc.Ptr(tenantNS))
-		ais.Spec.Auth.ProfileRef = &aisv1.AuthProfileRef{Name: "prod-authn"}
-		webhook, reviews := newSARWebhook(t, true, authProfile("prod-authn"))
-		g.Expect(webhook.validateAuthAccess(ctx, nil, ais)).To(Succeed())
-		g.Expect(*reviews).To(HaveLen(2))
-		g.Expect((*reviews)[0].Spec.ResourceAttributes.Resource).To(Equal("aistoreauthprofiles"))
-		g.Expect((*reviews)[1].Spec.ResourceAttributes.Resource).To(Equal("secrets"))
-	})
-
-	t.Run("missing profile is rejected after authorization", func(t *testing.T) {
-		g := NewWithT(t)
-		webhook, reviews := newSARWebhook(t, true)
-		err := webhook.validateAuthAccess(ctx, nil, profileAIS("missing-authn"))
-		g.Expect(*reviews).To(HaveLen(1))
-		g.Expect(apierrors.IsInvalid(err)).To(BeTrue())
-		g.Expect(err).To(MatchError(ContainSubstring("spec.auth.profileRef")))
-		g.Expect(err).To(MatchError(ContainSubstring("referenced AIStoreAuthProfile does not exist")))
-	})
-
-	t.Run("profile ref denial short-circuits the secret review", func(t *testing.T) {
-		g := NewWithT(t)
-		ais := secretAIS("creds", aisapc.Ptr(tenantNS))
-		ais.Spec.Auth.ProfileRef = &aisv1.AuthProfileRef{Name: "prod-authn"}
-		webhook, reviews := newSARWebhook(t, false)
-		g.Expect(webhook.validateAuthAccess(ctx, nil, ais)).To(HaveOccurred())
-		g.Expect(*reviews).To(HaveLen(1))
-		g.Expect((*reviews)[0].Spec.ResourceAttributes.Resource).To(Equal("aistoreauthprofiles"))
 	})
 }

@@ -109,38 +109,8 @@ func (aisw *AIStoreWebhook) validateSpec(ctx context.Context, prev, ais *aisv1.A
 		return allWarnings, err
 	}
 
-	err = aisw.validateAuthAccess(ctx, prev, ais)
+	err = aisw.validateAuthProfile(ctx, prev, ais)
 	return allWarnings, err
-}
-
-func authSecretNamespace(ais *aisv1.AIStore, up *aisv1.UsernamePasswordAuth) string {
-	if up.SecretNamespace != nil {
-		return *up.SecretNamespace
-	}
-	return ais.Namespace
-}
-
-// validateAuthSecret checks user access to spec.auth.usernamePassword:
-// requires "get" on the referenced credentials Secret, checked on every create and update when changed
-func (aisw *AIStoreWebhook) validateAuthSecret(ctx context.Context, prev, ais *aisv1.AIStore) error {
-	if ais.Spec.Auth == nil || ais.Spec.Auth.UsernamePassword == nil { //nolint:staticcheck // deprecated UsernamePassword field
-		return nil
-	}
-	up := ais.Spec.Auth.UsernamePassword                                                                  //nolint:staticcheck // deprecated UsernamePassword field
-	previousEntryExists := prev != nil && prev.Spec.Auth != nil && prev.Spec.Auth.UsernamePassword != nil //nolint:staticcheck // deprecated UsernamePassword field
-	// Skip SubjectAccessReview if the reference is unchanged
-	if previousEntryExists {
-		previousUP := prev.Spec.Auth.UsernamePassword //nolint:staticcheck // deprecated UsernamePassword field
-		if previousUP.SecretName == up.SecretName && authSecretNamespace(prev, previousUP) == authSecretNamespace(ais, up) {
-			return nil
-		}
-	}
-	return aisw.authorize(ctx, ais, "get", field.NewPath("spec", "auth", "usernamePassword"),
-		&authorizationv1.ResourceAttributes{
-			Resource:  "secrets",
-			Namespace: authSecretNamespace(ais, up),
-			Name:      up.SecretName,
-		})
 }
 
 // validateAuthProfile checks user access to spec.auth.profileRef:
@@ -185,14 +155,6 @@ func (aisw *AIStoreWebhook) validateAuthProfileExistence(ctx context.Context, pa
 		)
 	}
 	return nil
-}
-
-// validateAuthAccess verifies the submitting user may use the referenced auth configuration.
-func (aisw *AIStoreWebhook) validateAuthAccess(ctx context.Context, prev, ais *aisv1.AIStore) error {
-	if err := aisw.validateAuthProfile(ctx, prev, ais); err != nil {
-		return err
-	}
-	return aisw.validateAuthSecret(ctx, prev, ais)
 }
 
 func (aisw *AIStoreWebhook) authorize(

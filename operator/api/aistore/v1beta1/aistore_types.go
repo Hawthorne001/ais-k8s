@@ -107,42 +107,12 @@ const (
 // IMPORTANT: Run "make" to regenerate code after modifying this file
 
 // AuthSpec configures access to the auth service for this AIS cluster
-// Either ProfileRef or exactly one of UsernamePassword and TokenExchange must be specified
-// UsernamePassword and TokenExchange are deprecated
-// +kubebuilder:validation:XValidation:rule="has(self.profileRef) || (has(self.usernamePassword) != has(self.tokenExchange))",message="exactly one of usernamePassword or tokenExchange must be specified when profileRef is not set"
 type AuthSpec struct {
 	// ProfileRef references the AIStoreAuthProfile holding the auth provider
 	// configuration the operator is allowed to authenticate against.
-	// When set, the operator resolves the provider from the profile and ignores the remaining
-	// fields of this spec.
+	// Operator resolves the token request information for the provider from the profile.
 	// The submitting user must have "use" access to the referenced profile
-	// +optional
-	ProfileRef *AuthProfileRef `json:"profileRef,omitempty"`
-
-	// Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-	// ServiceURL is the base URL of the AuthN service (scheme + host + optional port, no path)
-	// Format: "scheme://hostname[:port]"
-	// TLS is determined from the URL scheme (https = TLS enabled)
-	// Port defaults to 80 for http and 443 for https if not specified
-	// If not specified, defaults to "https://ais-authn.ais:52001"
-	// +optional
-	ServiceURL *string `json:"serviceURL,omitempty"`
-
-	// Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-	// UsernamePassword authentication configuration using static credentials
-	// +optional
-	UsernamePassword *UsernamePasswordAuth `json:"usernamePassword,omitempty"`
-
-	// Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-	// TokenExchange authentication configuration using RFC 8693 OAuth 2.0 Token Exchange
-	// This eliminates the need for static credentials, so is recommended over UsernamePassword for workload identity
-	// +optional
-	TokenExchange *TokenExchangeAuth `json:"tokenExchange,omitempty"`
-
-	// Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-	// TLS configuration for secure connections with Auth service
-	// +optional
-	TLS *AuthTLSConfig `json:"tls,omitempty"`
+	ProfileRef *AuthProfileRef `json:"profileRef"`
 }
 
 // AuthProfileRef references a cluster-scoped AIStoreAuthProfile
@@ -150,62 +120,6 @@ type AuthProfileRef struct {
 	// Name of the AIStoreAuthProfile to use for fetching AIS tokens
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
-}
-
-// AuthTLSConfig defines TLS configuration for Auth connections
-type AuthTLSConfig struct {
-	// CACertPath is a filesystem path to a CA certificate file (PEM format)
-	// This certificate will be added to the trust store for verifying Auth service certificates
-	// Example: "/etc/ssl/certs/custom-ca.crt"
-	// +optional
-	CACertPath string `json:"caCertPath,omitempty"`
-
-	// InsecureSkipVerify disables TLS certificate verification (not recommended for production)
-	// If true, the operator will accept any certificate presented by the Auth service
-	// +optional
-	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
-}
-
-// UsernamePasswordAuth defines authentication using static username/password credentials
-type UsernamePasswordAuth struct {
-	// SecretName is the name of the secret containing auth service admin credentials (SU-NAME and SU-PASS)
-	// +kubebuilder:validation:MinLength=1
-	SecretName string `json:"secretName"`
-
-	// SecretNamespace is the namespace of the secret containing auth service admin credentials
-	// If not specified, defaults to the AIStore cluster namespace
-	// The submitting user's access to the referenced Secret is verified with a SubjectAccessReview
-	// on AIStore create, and on update when the secret reference changes
-	// +kubebuilder:validation:MinLength=1
-	// +optional
-	SecretNamespace *string `json:"secretNamespace,omitempty"`
-
-	// LoginConf contains details for OAuth 2.0 compliant password-based login
-	// If not set, the operator will log in using the native AIStore AuthN service API
-	// +optional
-	LoginConf *AuthServerLoginConf `json:"loginConf,omitempty"`
-}
-
-// AuthServerLoginConf defines fields used for getting a token from any OAuth 2.0 service
-type AuthServerLoginConf struct {
-	// Client ID for the auth service, used when fetching a token
-	ClientID string `json:"clientID"`
-	// Scope to pass when fetching a token from the configured auth service
-	// +optional
-	Scope *string `json:"scope,omitempty"`
-}
-
-// TokenExchangeAuth defines authentication using RFC 8693 OAuth 2.0 Token Exchange
-type TokenExchangeAuth struct {
-	// TokenPath is the path to the token to be exchanged
-	// If not specified, the operator requests a short-lived token for its own ServiceAccount
-	// +optional
-	TokenPath *string `json:"tokenPath,omitempty"`
-
-	// TokenExchangeEndpoint is the AuthN endpoint for token exchange
-	// If not specified, defaults to "/token"
-	// +optional
-	TokenExchangeEndpoint *string `json:"tokenExchangeEndpoint,omitempty"`
 }
 
 // AdminClientSpec defines the optional admin client
@@ -477,8 +391,8 @@ type AIStoreSpec struct {
 	// +optional
 	AuthNSecretName *string `json:"authNSecretName,omitempty"`
 
-	// Auth specifies the Auth service configuration for admin authentication
-	// If not specified, the operator will look for configuration in the legacy ConfigMap
+	// Auth specifies the Auth service configuration for admin client authentication
+	// This is used by admins such as the operator or adminClient
 	// +optional
 	Auth *AuthSpec `json:"auth,omitempty"`
 

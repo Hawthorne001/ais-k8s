@@ -395,7 +395,7 @@
     },
     "auth": {
       "type": ["object", "null"],
-      "description": "Auth specifies the Auth service configuration for admin authentication. If not specified, the operator will look for configuration in the legacy ConfigMap.",
+      "description": "Auth specifies the Auth service configuration for admin authentication.",
       "properties": {
         "profileRef": {
           "type": "object",

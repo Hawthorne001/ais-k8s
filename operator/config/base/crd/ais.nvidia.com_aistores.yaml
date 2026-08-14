@@ -1284,15 +1284,14 @@ spec:
                 type: string
               auth:
                 description: |-
-                  Auth specifies the Auth service configuration for admin authentication
-                  If not specified, the operator will look for configuration in the legacy ConfigMap
+                  Auth specifies the Auth service configuration for admin client authentication
+                  This is used by admins such as the operator or adminClient
                 properties:
                   profileRef:
                     description: |-
                       ProfileRef references the AIStoreAuthProfile holding the auth provider
                       configuration the operator is allowed to authenticate against.
-                      When set, the operator resolves the provider from the profile and ignores the remaining
-                      fields of this spec.
+                      Operator resolves the token request information for the provider from the profile.
                       The submitting user must have "use" access to the referenced profile
                     properties:
                       name:
@@ -1303,91 +1302,9 @@ spec:
                     required:
                     - name
                     type: object
-                  serviceURL:
-                    description: |-
-                      Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-                      ServiceURL is the base URL of the AuthN service (scheme + host + optional port, no path)
-                      Format: "scheme://hostname[:port]"
-                      TLS is determined from the URL scheme (https = TLS enabled)
-                      Port defaults to 80 for http and 443 for https if not specified
-                      If not specified, defaults to "https://ais-authn.ais:52001"
-                    type: string
-                  tls:
-                    description: |-
-                      Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-                      TLS configuration for secure connections with Auth service
-                    properties:
-                      caCertPath:
-                        description: |-
-                          CACertPath is a filesystem path to a CA certificate file (PEM format)
-                          This certificate will be added to the trust store for verifying Auth service certificates
-                          Example: "/etc/ssl/certs/custom-ca.crt"
-                        type: string
-                      insecureSkipVerify:
-                        description: |-
-                          InsecureSkipVerify disables TLS certificate verification (not recommended for production)
-                          If true, the operator will accept any certificate presented by the Auth service
-                        type: boolean
-                    type: object
-                  tokenExchange:
-                    description: |-
-                      Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-                      TokenExchange authentication configuration using RFC 8693 OAuth 2.0 Token Exchange
-                      This eliminates the need for static credentials, so is recommended over UsernamePassword for workload identity
-                    properties:
-                      tokenExchangeEndpoint:
-                        description: |-
-                          TokenExchangeEndpoint is the AuthN endpoint for token exchange
-                          If not specified, defaults to "/token"
-                        type: string
-                      tokenPath:
-                        description: |-
-                          TokenPath is the path to the token to be exchanged
-                          If not specified, the operator requests a short-lived token for its own ServiceAccount
-                        type: string
-                    type: object
-                  usernamePassword:
-                    description: |-
-                      Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md.
-                      UsernamePassword authentication configuration using static credentials
-                    properties:
-                      loginConf:
-                        description: |-
-                          LoginConf contains details for OAuth 2.0 compliant password-based login
-                          If not set, the operator will log in using the native AIStore AuthN service API
-                        properties:
-                          clientID:
-                            description: Client ID for the auth service, used when
-                              fetching a token
-                            type: string
-                          scope:
-                            description: Scope to pass when fetching a token from
-                              the configured auth service
-                            type: string
-                        required:
-                        - clientID
-                        type: object
-                      secretName:
-                        description: SecretName is the name of the secret containing
-                          auth service admin credentials (SU-NAME and SU-PASS)
-                        minLength: 1
-                        type: string
-                      secretNamespace:
-                        description: |-
-                          SecretNamespace is the namespace of the secret containing auth service admin credentials
-                          If not specified, defaults to the AIStore cluster namespace
-                          The submitting user's access to the referenced Secret is verified with a SubjectAccessReview
-                          on AIStore create, and on update when the secret reference changes
-                        minLength: 1
-                        type: string
-                    required:
-                    - secretName
-                    type: object
+                required:
+                - profileRef
                 type: object
-                x-kubernetes-validations:
-                - message: exactly one of usernamePassword or tokenExchange must be
-                    specified when profileRef is not set
-                  rule: has(self.profileRef) || (has(self.usernamePassword) != has(self.tokenExchange))
               authNSecretName:
                 description: Secret name containing AuthN's JWT signing key
                 type: string

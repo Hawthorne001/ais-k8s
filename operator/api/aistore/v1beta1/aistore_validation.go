@@ -138,19 +138,11 @@ func (ais *AIStore) validateSafeDecommission() (admission.Warnings, error) {
 
 // validateDeprecatedFields warns on spec fields that are slated for removal.
 func (ais *AIStore) validateDeprecatedFields() (admission.Warnings, error) {
-	auth := ais.Spec.Auth
-	if auth == nil {
-		auth = &AuthSpec{}
-	}
 	deprecated := []struct {
 		inUse       bool
 		field       string
 		replacement string
 	}{
-		{auth.ServiceURL != nil, "spec.auth.serviceURL", "spec.auth.profileRef"},
-		{auth.UsernamePassword != nil, "spec.auth.usernamePassword", "spec.auth.profileRef"},
-		{auth.TokenExchange != nil, "spec.auth.tokenExchange", "spec.auth.profileRef"},
-		{auth.TLS != nil, "spec.auth.tls", "spec.auth.profileRef"},
 		{ais.Spec.ClusterDomain != nil, "spec.clusterDomain", "the operator's configured or discovered cluster domain"},
 		{ais.Spec.HostpathPrefix != nil, "spec.hostpathPrefix", "spec.stateStorage.hostPath.prefix"},
 		{ais.Spec.StateStorageClass != nil, "spec.stateStorageClass", "spec.stateStorage.pvc.storageClass"},

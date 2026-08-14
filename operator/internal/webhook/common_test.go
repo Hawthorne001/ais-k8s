@@ -61,7 +61,7 @@ func secretAttrs() *authorizationv1.ResourceAttributes {
 }
 
 func TestAuthorizeGet(t *testing.T) {
-	path := field.NewPath("spec", "auth", "usernamePassword")
+	path := field.NewPath("testSecret", "spec")
 
 	for _, tt := range []struct {
 		name string

@@ -936,9 +936,6 @@ func (r *Reconciler) reconcileClientDeployment(ctx context.Context, ais *aisv1.A
 }
 
 func (r *Reconciler) resolveAuthConf(ctx context.Context, ais *aisv1.AIStore) (services.AuthConfig, error) {
-	if ais.Spec.Auth == nil {
-		return nil, nil
-	}
 	return services.NewAuthNClient(r.k8sClient).ResolveAuthConfig(ctx, ais)
 }
 

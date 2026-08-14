@@ -63,13 +63,6 @@ var _ = Describe("AuthProfileConfig", func() {
 		Expect(config.GetSubjectTokenAudience()).To(BeEmpty())
 	})
 
-	It("should never present a projected token path, so the operator mints its own", func() {
-		config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
-			TokenExchange: &authv1alpha1.AuthProfileTokenExchange{SubjectTokenAudience: "ais-authn"},
-		})
-		Expect(config.GetTokenPath()).To(BeEmpty())
-	})
-
 	It("should default the credential keys to the AuthN admin secret format", func() {
 		config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
 			UsernamePassword: &authv1alpha1.AuthProfileUsernamePassword{
@@ -79,8 +72,8 @@ var _ = Describe("AuthProfileConfig", func() {
 		Expect(config.IsTokenExchange()).To(BeFalse())
 		Expect(config.GetSecretName()).To(Equal("admin"))
 		Expect(config.GetSecretNamespace()).To(Equal("auth-config"))
-		Expect(config.GetUserKey()).To(Equal(AuthNSecretRefName))
-		Expect(config.GetPassKey()).To(Equal(AuthNSecretRefPass))
+		Expect(config.GetUserKey()).To(Equal(authv1alpha1.DefaultAuthProfileUserKey))
+		Expect(config.GetPassKey()).To(Equal(authv1alpha1.DefaultAuthProfilePassKey))
 		Expect(config.GetOAuthLoginConf()).To(BeNil())
 	})
 
@@ -162,7 +155,7 @@ var _ = Describe("AuthProfileConfig", func() {
 	})
 })
 
-var _ = Describe("getAuthConfig", func() {
+var _ = Describe("ResolveAuthConfig", func() {
 	It("should resolve auth from the referenced AIStoreAuthProfile", func() {
 		profile := &authv1alpha1.AIStoreAuthProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "prod-authn"},
@@ -189,35 +182,30 @@ var _ = Describe("getAuthConfig", func() {
 		Expect(config.GetTokenExchangeEndpoint()).To(Equal("/exchange"))
 	})
 
-	It("should ignore spec auth fields when profileRef is set", func() {
-		specURL := "http://spec-authn.ais:52001"
-		profile := &authv1alpha1.AIStoreAuthProfile{
-			ObjectMeta: metav1.ObjectMeta{Name: "prod-authn"},
-			Spec: authv1alpha1.AIStoreAuthProfileSpec{
-				ServiceURL:    "https://auth-provider.ais.svc:52001",
-				TokenExchange: &authv1alpha1.AuthProfileTokenExchange{Endpoint: "/exchange"},
-			},
+	It("should safely return empty auth config if given a nil auth spec", func() {
+		client := NewAuthNClient(newFakeK8sClient())
+		ais := &aisv1.AIStore{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
+			Spec:       aisv1.AIStoreSpec{},
 		}
-		client := NewAuthNClient(newFakeK8sClient(profile))
+
+		config, err := client.ResolveAuthConfig(context.Background(), ais)
+		Expect(err).To(BeNil())
+		Expect(config).To(BeNil())
+	})
+
+	It("should surface an error when no profile is referenced", func() {
+		client := NewAuthNClient(newFakeK8sClient())
 		ais := &aisv1.AIStore{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
 			Spec: aisv1.AIStoreSpec{
-				Auth: &aisv1.AuthSpec{
-					ProfileRef: &aisv1.AuthProfileRef{Name: "prod-authn"},
-					ServiceURL: &specURL,
-					UsernamePassword: &aisv1.UsernamePasswordAuth{
-						SecretName: "spec-admin",
-					},
-				},
+				Auth: &aisv1.AuthSpec{},
 			},
 		}
 
 		config, err := client.ResolveAuthConfig(context.Background(), ais)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(config).To(BeAssignableToTypeOf(&AuthProfileConfig{}))
-		Expect(config.GetServiceURL()).To(Equal("https://auth-provider.ais.svc:52001"))
-		Expect(config.IsTokenExchange()).To(BeTrue())
-		Expect(config.GetSecretName()).To(BeEmpty())
+		Expect(err).To(MatchError(ContainSubstring(`no profileRef specified`)))
+		Expect(config).To(BeNil())
 	})
 
 	It("should surface an error when the referenced profile does not exist", func() {
@@ -234,29 +222,6 @@ var _ = Describe("getAuthConfig", func() {
 		_, err := client.ResolveAuthConfig(context.Background(), ais)
 		Expect(err).To(MatchError(ContainSubstring(`failed to get AIStoreAuthProfile "missing-profile"`)))
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
-	})
-
-	It("should fall back to the spec auth fields when profileRef is unset", func() {
-		serviceURL := "https://spec-authn.ais:8443"
-		client := NewAuthNClient(newFakeK8sClient())
-		ais := &aisv1.AIStore{
-			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
-			Spec: aisv1.AIStoreSpec{
-				Auth: &aisv1.AuthSpec{
-					ServiceURL: &serviceURL,
-					UsernamePassword: &aisv1.UsernamePasswordAuth{
-						SecretName: "admin",
-					},
-				},
-			},
-		}
-
-		config, err := client.ResolveAuthConfig(context.Background(), ais)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(config).To(BeAssignableToTypeOf(&AuthSpecConfig{}))
-		Expect(config.GetServiceURL()).To(Equal(serviceURL))
-		Expect(config.GetSecretName()).To(Equal("admin"))
-		Expect(config.GetSecretNamespace()).To(Equal("tenant"))
 	})
 })
 

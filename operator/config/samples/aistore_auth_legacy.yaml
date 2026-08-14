@@ -1,4 +1,6 @@
 # Deprecated example configurations for defining operator auth token provisioning directly in AIStore spec
+# This file is maintained only for reference.
+# All deployments for operator versions >= v3.3 should use the spec.auth.profileRef field instead.
 ---
 # Example 1: Username/Password Authentication
 apiVersion: ais.nvidia.com/v1beta1

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/aistore/api"
+	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	"github.com/ais-operator/internal/opinfo"
 	"github.com/ais-operator/internal/truststore"
@@ -209,54 +210,6 @@ var _ = Describe("AuthN Base Params", func() {
 	})
 })
 
-var _ = Describe("ReadTokenFromFile", func() {
-	var tmpDir string
-
-	BeforeEach(func() {
-		tmpDir = GinkgoT().TempDir()
-	})
-
-	It("should read valid token file", func() {
-		tokenPath := filepath.Join(tmpDir, "token")
-		expectedToken := "test-token-12345"
-
-		err := os.WriteFile(tokenPath, []byte(expectedToken), 0o600)
-		Expect(err).NotTo(HaveOccurred())
-
-		token, err := readTokenFromFile(tokenPath)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(token).To(Equal(expectedToken))
-	})
-
-	It("should trim whitespace from token", func() {
-		tokenPath := filepath.Join(tmpDir, "token")
-		tokenWithWhitespace := "  test-token-12345  \n"
-
-		err := os.WriteFile(tokenPath, []byte(tokenWithWhitespace), 0o600)
-		Expect(err).NotTo(HaveOccurred())
-
-		token, err := readTokenFromFile(tokenPath)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(token).To(Equal("test-token-12345"))
-	})
-
-	It("should return error for empty token file", func() {
-		tokenPath := filepath.Join(tmpDir, "token")
-
-		err := os.WriteFile(tokenPath, []byte(""), 0o600)
-		Expect(err).NotTo(HaveOccurred())
-
-		_, err = readTokenFromFile(tokenPath)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("token file is empty"))
-	})
-
-	It("should return error for non-existent token file", func() {
-		_, err := readTokenFromFile("/nonexistent/token")
-		Expect(err).To(HaveOccurred())
-	})
-})
-
 var _ = Describe("Subject token", func() {
 	const (
 		operatorNamespace = "ais-operator-system"
@@ -283,17 +236,7 @@ var _ = Describe("Subject token", func() {
 			reviewedAs("system:serviceaccount:"+operatorNamespace+":"+operatorSA))).To(Succeed())
 	})
 
-	It("should read the projected token when a token path is configured", func() {
-		tokenPath := filepath.Join(GinkgoT().TempDir(), "token")
-		Expect(os.WriteFile(tokenPath, []byte("projected-token"), 0o600)).To(Succeed())
-
-		authN := NewAuthNClient(newFakeK8sClient())
-		token, err := authN.getSubjectToken(context.Background(), &mockAuthConfig{tokenPath: tokenPath})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(token).To(Equal("projected-token"))
-	})
-
-	When("no token path is configured", func() {
+	When("the operator ServiceAccount exists", func() {
 		var (
 			authN   *AuthNClient
 			request *authenticationv1.TokenRequest
@@ -316,14 +259,14 @@ var _ = Describe("Subject token", func() {
 		})
 
 		It("should mint a token for the operator ServiceAccount", func() {
-			token, err := authN.getSubjectToken(context.Background(), &mockAuthConfig{})
+			token, err := authN.mintSubjectToken(context.Background(), "")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(token).NotTo(BeEmpty())
 			Expect(minted).To(Equal(client.ObjectKey{Namespace: operatorNamespace, Name: operatorSA}))
 		})
 
 		It("should mint with the audience the provider requires", func() {
-			token, err := authN.getSubjectToken(context.Background(), &mockAuthConfig{subjectTokenAud: "ais-authn"})
+			token, err := authN.mintSubjectToken(context.Background(), "ais-authn")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(token).NotTo(BeEmpty())
 			Expect(request).NotTo(BeNil())
@@ -333,7 +276,7 @@ var _ = Describe("Subject token", func() {
 
 	It("should fail when the operator ServiceAccount does not exist", func() {
 		authN := NewAuthNClient(newFakeK8sClient())
-		_, err := authN.getSubjectToken(context.Background(), &mockAuthConfig{})
+		_, err := authN.mintSubjectToken(context.Background(), "")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to mint token"))
 	})
@@ -382,7 +325,6 @@ var _ = Describe("OAuth Password Login", func() {
 type mockAuthConfig struct {
 	serviceURL         string
 	isTokenExchange    bool
-	tokenPath          string
 	subjectTokenAud    string
 	tokenExchangeEP    string
 	secretName         string
@@ -400,10 +342,6 @@ func (m *mockAuthConfig) IsTokenExchange() bool {
 	return m.isTokenExchange
 }
 
-func (m *mockAuthConfig) GetTokenPath() string {
-	return m.tokenPath
-}
-
 func (m *mockAuthConfig) GetSubjectTokenAudience() string {
 	return m.subjectTokenAud
 }
@@ -419,9 +357,9 @@ func (*mockAuthConfig) GetOAuthLoginConf() *OAuthLoginConf {
 	return nil
 }
 
-func (*mockAuthConfig) GetUserKey() string { return AuthNSecretRefName }
+func (*mockAuthConfig) GetUserKey() string { return authv1alpha1.DefaultAuthProfileUserKey }
 
-func (*mockAuthConfig) GetPassKey() string { return AuthNSecretRefPass }
+func (*mockAuthConfig) GetPassKey() string { return authv1alpha1.DefaultAuthProfilePassKey }
 
 func (m *mockAuthConfig) GetSecretName() string {
 	return m.secretName

@@ -92,7 +92,6 @@ type fakeAuthConfig struct {
 
 func (f *fakeAuthConfig) GetServiceURL() string                     { return f.serviceURL }
 func (*fakeAuthConfig) IsTokenExchange() bool                       { return false }
-func (*fakeAuthConfig) GetTokenPath() string                        { return "" }
 func (*fakeAuthConfig) GetSubjectTokenAudience() string             { return "" }
 func (*fakeAuthConfig) GetTokenExchangeEndpoint() string            { return "" }
 func (*fakeAuthConfig) GetOAuthLoginConf() *services.OAuthLoginConf { return nil }

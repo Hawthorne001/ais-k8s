@@ -198,31 +198,14 @@ var _ = Describe("AIStore", func() {
 					"",
 				),
 				Entry(
-					"accepts a profile reference alongside the deprecated fields",
-					&AuthSpec{
-						ProfileRef:       &AuthProfileRef{Name: "prod-authn"},
-						UsernamePassword: &UsernamePasswordAuth{SecretName: "creds"},
-						TokenExchange:    &TokenExchangeAuth{},
-					},
-					"",
-				),
-				Entry(
 					"rejects an empty profile name",
 					&AuthSpec{ProfileRef: &AuthProfileRef{}},
 					"spec.auth.profileRef.name in body should be at least 1 chars long",
 				),
 				Entry(
-					"rejects both auth methods without a profile reference",
-					&AuthSpec{
-						UsernamePassword: &UsernamePasswordAuth{SecretName: "creds"},
-						TokenExchange:    &TokenExchangeAuth{},
-					},
-					"exactly one of usernamePassword or tokenExchange must be specified when profileRef is not set",
-				),
-				Entry(
-					"rejects neither auth method without a profile reference",
+					"rejects auth without a profile reference",
 					&AuthSpec{},
-					"exactly one of usernamePassword or tokenExchange must be specified when profileRef is not set",
+					"spec.auth.profileRef: Required value",
 				),
 			)
 		})

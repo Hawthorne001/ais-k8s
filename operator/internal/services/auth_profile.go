@@ -15,6 +15,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// DefaultAuthCACertPath is the location for any statically mounted custom Auth CA trust
+const DefaultAuthCACertPath = "/etc/ssl/certs/auth-ca/ca.crt"
+
 // AuthProfileConfig wraps an AIStoreAuthProfile, the administrator-approved auth provider
 type AuthProfileConfig struct {
 	profile   *authv1alpha1.AIStoreAuthProfile
@@ -25,10 +28,6 @@ type AuthProfileConfig struct {
 func (c *AuthProfileConfig) GetServiceURL() string { return c.profile.Spec.ServiceURL }
 
 func (c *AuthProfileConfig) IsTokenExchange() bool { return c.profile.Spec.TokenExchange != nil }
-
-// GetTokenPath returns an empty path because profiles do not define projected token location for clients.
-// Clients, including the operator, must configure their own token location.
-func (*AuthProfileConfig) GetTokenPath() string { return "" }
 
 func (c *AuthProfileConfig) GetSubjectTokenAudience() string {
 	if c.profile.Spec.TokenExchange == nil {
@@ -96,7 +95,7 @@ func (c *AuthProfileConfig) loginSecret() *authv1alpha1.AuthProfileSecret {
 // than on the operator's filesystem.
 func (c *AuthProfileConfig) trustStoreConfig(ctx context.Context) (truststore.Config, error) {
 	if c.profile.Spec.TLS == nil || c.profile.Spec.TLS.CAConfigMapRef == nil {
-		return truststore.Config{CACertPaths: caCertPaths("")}, nil
+		return truststore.Config{CACertPaths: []string{DefaultAuthCACertPath}}, nil
 	}
 	ref := c.profile.Spec.TLS.CAConfigMapRef
 	name := types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}

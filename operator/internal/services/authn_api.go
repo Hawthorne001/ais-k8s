@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,7 +76,6 @@ type (
 	AuthConfig interface {
 		GetServiceURL() string
 		IsTokenExchange() bool
-		GetTokenPath() string
 		GetSubjectTokenAudience() string
 		GetTokenExchangeEndpoint() string
 		GetOAuthLoginConf() *OAuthLoginConf
@@ -130,18 +130,6 @@ func NewAuthNClient(k8sClient *aisclient.K8sClient) *AuthNClient {
 	}
 }
 
-// caCertPaths returns the configured CA path, falling back to the operator's default mount
-// point when it exists (populated from an optional ConfigMap).
-func caCertPaths(configured string) []string {
-	if configured != "" {
-		return []string{configured}
-	}
-	if _, err := os.Stat(DefaultAuthCACertPath); err == nil {
-		return []string{DefaultAuthCACertPath}
-	}
-	return nil
-}
-
 // get returns the cached TLS config, rebuilding it from source once the cache TTL elapses
 func (c *tlsCache) get(
 	ctx context.Context,
@@ -190,9 +178,6 @@ func (c *tlsCache) get(
 
 // getAdminToken Gets an admin token for the given cluster using token exchange or configured credentials secret
 func (c *AuthNClient) getAdminToken(ctx context.Context, ais *aisv1.AIStore) (*TokenInfo, error) {
-	if ais.Spec.Auth == nil {
-		return nil, nil
-	}
 	authConf, err := c.ResolveAuthConfig(ctx, ais)
 	if err != nil || authConf == nil {
 		return nil, err
@@ -217,26 +202,20 @@ func (c *AuthNClient) getAdminToken(ctx context.Context, ais *aisv1.AIStore) (*T
 	return c.getTokenViaPassword(ctx, baseParams, authConf)
 }
 
-// ResolveAuthConfig resolves the auth provider for the cluster, preferring the referenced
-// AIStoreAuthProfile over the inline spec.auth fields
+// ResolveAuthConfig resolves the auth provider from the referenced AIStoreAuthProfile
 func (c *AuthNClient) ResolveAuthConfig(ctx context.Context, ais *aisv1.AIStore) (AuthConfig, error) {
 	spec := ais.Spec.Auth
-
-	var config AuthConfig
-	if spec.ProfileRef != nil {
-		profile, err := c.k8sClient.GetAuthProfile(ctx, spec.ProfileRef.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get AIStoreAuthProfile %q: %w", spec.ProfileRef.Name, err)
-		}
-		config = &AuthProfileConfig{profile: profile, k8sClient: c.k8sClient}
-	} else {
-		// Validate that exactly one auth method is configured
-		if spec.TokenExchange == nil && spec.UsernamePassword == nil { //nolint:staticcheck // deprecated inline auth fields
-			return nil, fmt.Errorf("invalid auth service configuration: exactly one of usernamePassword or tokenExchange must be specified")
-		}
-		config = &AuthSpecConfig{spec: spec, namespace: ais.Namespace}
+	if spec == nil {
+		return nil, nil
 	}
-	return config, nil
+	if spec.ProfileRef == nil {
+		return nil, errors.New("no profileRef specified")
+	}
+	profile, err := c.k8sClient.GetAuthProfile(ctx, spec.ProfileRef.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get AIStoreAuthProfile %q: %w", spec.ProfileRef.Name, err)
+	}
+	return &AuthProfileConfig{profile: profile, k8sClient: c.k8sClient}, nil
 }
 
 // getSecretData Get the secret data from the specified secret name and namespace
@@ -423,7 +402,7 @@ func (c *AuthNClient) getTokenViaExchange(ctx context.Context, bp *api.BaseParam
 
 	endpoint := conf.GetTokenExchangeEndpoint()
 
-	sourceToken, err := c.getSubjectToken(ctx, conf)
+	sourceToken, err := c.mintSubjectToken(ctx, conf.GetSubjectTokenAudience())
 	if err != nil {
 		return nil, err
 	}
@@ -442,26 +421,6 @@ func (c *AuthNClient) getTokenViaExchange(ctx context.Context, bp *api.BaseParam
 	return tokenInfo, nil
 }
 
-// getSubjectToken returns the token the operator presents for exchange.
-func (c *AuthNClient) getSubjectToken(ctx context.Context, conf AuthConfig) (string, error) {
-	if tokenPath := conf.GetTokenPath(); tokenPath != "" {
-		return readProjectedToken(ctx, tokenPath)
-	}
-	return c.mintSubjectToken(ctx, conf.GetSubjectTokenAudience())
-}
-
-// readProjectedToken reads the token projected into the operator pod at the given path.
-func readProjectedToken(ctx context.Context, tokenPath string) (string, error) {
-	logger := logf.FromContext(ctx)
-	token, err := readTokenFromFile(tokenPath)
-	if err != nil {
-		logger.Error(err, "Failed to read source token", "path", tokenPath)
-		return "", fmt.Errorf("failed to read token from %s: %w", tokenPath, err)
-	}
-	logger.V(2).Info("Using projected service account token", "tokenPath", tokenPath)
-	return token, nil
-}
-
 // mintSubjectToken mints a short-lived token for the operator's ServiceAccount bound to the configured audience.
 func (c *AuthNClient) mintSubjectToken(ctx context.Context, audience string) (string, error) {
 	logger := logf.FromContext(ctx)
@@ -474,19 +433,6 @@ func (c *AuthNClient) mintSubjectToken(ctx context.Context, audience string) (st
 	logger.V(2).Info("Minted service account token", "serviceAccount", sa.String(), "audience", audience,
 		"expiration", req.Status.ExpirationTimestamp)
 	return req.Status.Token, nil
-}
-
-// readTokenFromFile reads and returns a token from the specified file path
-func readTokenFromFile(path string) (string, error) {
-	tokenBytes, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	token := strings.TrimSpace(string(tokenBytes))
-	if token == "" {
-		return "", fmt.Errorf("token file is empty: %s", path)
-	}
-	return token, nil
 }
 
 // exchangeTokenWithAuthSvc exchanges a source token (e.g., K8s SA token) for an AIS JWT token

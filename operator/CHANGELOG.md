@@ -12,6 +12,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ### Removed
 
+- `spec.auth` individual options. See [compatibility doc](../docs/COMPATIBILITY.md#migrating-aistore-custom-resources-with-auth) for migration instructions to use `spec.auth.profileRef`.
 - `OPERATOR_SKIP_VERIFY_CRT` env var. 
   - Use `spec.operatorSkipVerifyCrt` to control TLS certificate verification. 
   - Note this defaults to false unlike the removed default Helm value for `OPERATOR_SKIP_VERIFY_CRT`. 
@@ -91,7 +92,7 @@ down unnecessarily. Note that this will only take effect once a rollout to proxy
 
 ### Deprecated
 
-- Deprecated individual `spec.auth` options in favor of the new `spec.auth.profileRef`. See [authn_profile](../docs/auth_profile.md)
+- Deprecated individual `spec.auth` options in favor of the new `spec.auth.profileRef`. See [auth_profile](../docs/auth_profile.md)
   - These will be removed in the next major release.
 
 ---
