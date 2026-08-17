@@ -1,11 +1,15 @@
 # Installation steps for Keycloak on K8s
 
+Use `./test-cluster.sh` to automatically provision a local KinD cluster with Keycloak installed and ready for AIS.
+
+The manual steps required are documented below.
+
 ## Prerequisites
 
-### Ingress Controller
+### External Access
 
-To access Keycloak from outside the K8s cluster, make sure you have an [ingress controller](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) configured in your cluster.
-In this guide we'll use [Traefik](https://traefik.io/traefik) but most should work. 
+The sample manifest disables ingress, and this guide reaches Keycloak through the cluster-internal service.
+To expose it outside the cluster instead, configure an [ingress controller](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) and set `spec.ingress.enabled: true`.
 
 ### Cert-manager
 
@@ -41,11 +45,13 @@ Get the password for the `app` user created in a secret by the CNPG installation
     1. Check [Keycloak's documentation](https://www.keycloak.org/operator/basic-deployment) for manifest options
     1. [Sample manifest](./manifests/keycloak.yaml)
 1. Log in. 
-    1. Find the external IP from your ingress controller
-    1. If necessary, SSH tunnel to that IP on any of your k8s nodes
-    1.  `ssh -L 8443:192.168.1.240:443 <your node hostname>`
-    1. Add an entry to etc/hosts, in my case `127.0.0.1 <keycloak hostname>`
-    1. Go to this address in your browser `https://<keycloak hostname>:8443/`
+    1. Forward the service to your local machine
+    1.  `kubectl port-forward -n keycloak service/keycloak-server-service 8543:8543`
+    1. If you run kubectl from a remote host rather than your local machine, SSH tunnel to that host
+    1.  `ssh -L 8543:127.0.0.1:8543 <your node hostname>`
+    1. API requests work directly against `https://localhost:8543`
+    1. For browser access, you'll need an etc/hosts entry: `127.0.0.1 <keycloak hostname>`
+    1. Go to this address in your browser `https://<keycloak hostname>:8543/`
     1. Get the admin login info from k8s
     ```
     kubectl get secret -n keycloak keycloak-server-initial-admin -o jsonpath='{.data.username}' | base64 --decode

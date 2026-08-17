@@ -1,4 +1,4 @@
-apiVersion: k8s.keycloak.org/v2alpha1
+apiVersion: k8s.keycloak.org/v2beta1
 kind: Keycloak
 metadata:
   name: keycloak-server
@@ -24,6 +24,4 @@ spec:
     # Sets up Keycloak server to be internally accessible by K8s service
     hostname: keycloak-server-service.keycloak.svc.cluster.local
   ingress:
-    enabled: true
-  proxy:
-    headers: xforwarded # double check your reverse proxy sets and overwrites the X-Forwarded-* headers
+    enabled: false

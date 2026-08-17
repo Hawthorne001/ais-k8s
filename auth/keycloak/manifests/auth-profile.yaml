@@ -1,0 +1,18 @@
+apiVersion: auth.ais.nvidia.com/v1alpha1
+kind: AIStoreAuthProfile
+metadata:
+  name: keycloak-ais-admin
+spec:
+  serviceURL: https://keycloak-server-service.keycloak.svc.cluster.local:8543
+  usernamePassword:
+    secret:
+      name: ais-admin-secret
+      namespace: ais
+    loginConf:
+      clientID: AIStore
+      endpoint: /realms/aistore/protocol/openid-connect/token
+  tls:
+    caConfigMapRef:
+      namespace: ais
+      name: aistore.nvidia.com
+      key: ca.crt

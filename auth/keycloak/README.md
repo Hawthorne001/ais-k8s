@@ -13,27 +13,22 @@ To create a non-production, automated deployment on a local KinD cluster, see [t
 The AIStore Realm is auto-imported in both the Docker and KinD deployment automation.
 
 This realm comes by default with a client `AIStore` and a default admin role that can be assigned to users. 
-Additional attributes can be added to match the JWT claim format described above. 
+It does NOT come with any users pre-created. 
+An AIStore admin user can be created via the Keycloak interface or using the [prepare_cluster script](./scripts/prepare_cluster.sh).
 
 ## Using test-cluster.sh
 
 This provided script will set up a local KinD cluster along with a simple Keycloak deployment including all prerequisites and an AIStore realm. 
 
-By default this deployment is set up for cluster-internal access.
+By default, this deployment is set up for cluster-internal access.
 You can use kubectl port-forward to expose the service on your local machine outside K8s: 
 
 ```bash
 kubectl port-forward -n keycloak service/keycloak-server-service 8543:8543
 ```
 
-Your request URL must match the hostname defined in [the keycloak manifest](./manifests/keycloak.yaml). 
-Modify your etc/hosts file to route your request to the port on your local machine mapped above to the internal service.
-For example: 
-
-```bash
- cat /etc/hosts
-127.0.0.1       localhost keycloak-server-service.keycloak.svc.cluster.local
-```
+The certificate includes a `localhost` SAN, so API requests through the port-forward need no `/etc/hosts` entry.
+Issued tokens carry the hostname from [the keycloak manifest](./manifests/keycloak.yaml) as their issuer, which is what the AIS cluster is configured to trust.
 
 Now you can get a token from the service running inside K8s on your machine:
 
@@ -43,5 +38,21 @@ curl -k \
   -d "username=ais-admin" \
   -d "password=<your password>" \
   -d "grant_type=password" \
-  "https://keycloak-server-service.keycloak.svc.cluster.local:8543/realms/aistore/protocol/openid-connect/token" | jq -r ".access_token"
+  "https://localhost:8543/realms/aistore/protocol/openid-connect/token" | jq -r ".access_token"
+```
+
+Reaching the admin console in a browser requires a hosts entry, since Keycloak redirects to its configured hostname:
+
+```bash
+ cat /etc/hosts
+127.0.0.1       localhost keycloak-server-service.keycloak.svc.cluster.local
+```
+
+Once configured with port-forward running, you can access the Keycloak interface at https://keycloak-server-service.keycloak.svc.cluster.local:8543. 
+
+The initial keycloak admin and password can be found in the `keycloak-server-initial-admin` secret in the `keycloak` namespace:
+
+```bash
+kubectl get secret -n keycloak keycloak-server-initial-admin -o jsonpath='{.data.username}' | base64 --decode
+kubectl get secret -n keycloak keycloak-server-initial-admin -o jsonpath='{.data.password}' | base64 --decode
 ```

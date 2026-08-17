@@ -11,8 +11,13 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLUSTER_NAME="keycloak-test"
-KEYCLOAK_VERSION="26.4.2"
+KEYCLOAK_VERSION="26.6.0"
 LOCAL_SCRIPT_DIR="${SCRIPT_DIR}/../../local"
+
+if ! command -v yq >/dev/null 2>&1; then
+  echo "ERROR: yq is required to import the AIS realm (used by realm/import-realm.sh)" >&2
+  exit 1
+fi
 
 source "${LOCAL_SCRIPT_DIR}/start-kind.sh"
 create_kind_cluster $CLUSTER_NAME
@@ -66,17 +71,33 @@ kubectl port-forward -n keycloak service/keycloak-server-service 8543:8543 >/dev
 pid=$!
 trap "kill $pid" EXIT
 
+# kubectl port-forward binds asynchronously, so wait for the listener before using it
+deadline=$((SECONDS + 30))
+until (exec 3<>/dev/tcp/localhost/8543) 2>/dev/null; do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "ERROR: port-forward to keycloak-server-service exited" >&2
+    exit 1
+  fi
+  if ((SECONDS >= deadline)); then
+    echo "ERROR: timed out waiting for port-forward on localhost:8543" >&2
+    exit 1
+  fi
+  echo "Waiting for keycloak port-forward..."
+  sleep 1
+done
+
 # Get ca.crt for trust from the issuer
 CA_FILE=$SCRIPT_DIR/scripts/ca.crt
 kubectl get secret ca-root-secret -n cert-manager -o "jsonpath={.data['ca\.crt']}" | base64 -d > "$CA_FILE"
-# Create an ais-admin user
-KEYCLOAK_HOST="https://keycloak-server-service.keycloak.svc.cluster.local:8543"
+# Create an ais-admin user through the port-forward above.
+# The certificate includes a localhost SAN, so this needs no hosts entry for the internal service name.
+KEYCLOAK_HOST="https://localhost:8543"
 "$SCRIPT_DIR/scripts/prepare_cluster.sh" "$KEYCLOAK_HOST" "$USER" "$PASS" "$CA_FILE"
 
 echo ""
 echo "Initial admin user: ${USER}"
 echo "Initial admin password: ${PASS}"
 echo ""
-echo "Port forward https through Traefik 'kubectl port-forward -n traefik service/traefik 8443:443'"
-echo "Add the keycloak hostname to your hosts, e.g. 127.0.0.1  keycloak.local"
-echo "curl -k https://keycloak.local:8443/realms/aistore"
+echo "To access locally, port forward the keycloak service 'kubectl port-forward -n keycloak service/keycloak-server-service 8543:8543'"
+echo "View the AIStore realm:"
+echo "curl -k https://localhost:8543/realms/aistore"

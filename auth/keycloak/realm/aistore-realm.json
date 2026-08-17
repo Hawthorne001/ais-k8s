@@ -502,8 +502,8 @@
         "jsonType.label" : "boolean"
       }
     } ],
-    "defaultClientScopes" : [ "web-origins", "roles" ],
-    "optionalClientScopes" : [ "acr", "address", "phone", "profile", "organization", "offline_access", "microprofile-jwt", "basic", "email" ]
+    "defaultClientScopes" : [ "web-origins", "roles", "basic" ],
+    "optionalClientScopes" : [ "acr", "address", "phone", "profile", "organization", "offline_access", "microprofile-jwt", "email" ]
   }, {
     "id" : "17a5a256-6f7d-4225-9b24-65d7cde4bda0",
     "clientId" : "account",
