@@ -9,6 +9,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: true
+        localStaticProvisioner:
+          enabled: false
 
   local:
     values:
@@ -19,6 +21,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: true
+        localStaticProvisioner:
+          enabled: false
 
   local-auth:
     values:
@@ -29,6 +33,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: true
+        localStaticProvisioner:
+          enabled: false
 
   keycloak:
     values:
@@ -40,6 +46,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: true
+        localStaticProvisioner:
+          enabled: false
 
   sjc4-dev:
     values:
@@ -51,6 +59,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: false
+        localStaticProvisioner:
+          enabled: false
 
   sjc4-1000:
     values:
@@ -61,6 +71,8 @@ environments:
         cloudSecrets:
           enabled: false
         createTargetPV:
+          enabled: false
+        localStaticProvisioner:
           enabled: false
 
   sjc11:
@@ -74,6 +86,8 @@ environments:
           valuesPath: "git::ssh://git@gitlab-master.nvidia.com/aistorage/ais-infra.git@helm/ais/config/cloud/sjc11.yaml.gotmpl?ref=main"
         createTargetPV:
           enabled: false
+        localStaticProvisioner:
+          enabled: false
 
   sjc112:
     values:
@@ -85,6 +99,10 @@ environments:
           enabled: false
         createTargetPV:
           enabled: false
+        localStaticProvisioner:
+          enabled: true
+          valuesPath: "git::ssh://git@gitlab-master.nvidia.com/aistorage/ais-infra.git@helm/ais/config/local-static-provisioner/sjc112.yaml?ref=main"
+     
 
   ais-qa:
     values:
@@ -96,6 +114,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: false
+        localStaticProvisioner:
+          enabled: false
 
   oci-iad:
     values:
@@ -105,6 +125,8 @@ environments:
         cloudSecrets:
           enabled: false
         createTargetPV:
+          enabled: false
+        localStaticProvisioner:
           enabled: false
 
   oci-iad-test:
@@ -116,6 +138,8 @@ environments:
           enabled: false
         createTargetPV:
           enabled: false
+        localStaticProvisioner:
+          enabled: false
 
   oci-ord:
     values:
@@ -125,6 +149,8 @@ environments:
         cloudSecrets:
           enabled: false
         createTargetPV:
+          enabled: false
+        localStaticProvisioner:
           enabled: false
 
   oci-nrt:
@@ -136,7 +162,13 @@ environments:
           enabled: false
         createTargetPV:
           enabled: false
+        localStaticProvisioner:
+          enabled: false
 ---
+repositories:
+  - name: sig-storage-local-static-provisioner
+    url: https://kubernetes-sigs.github.io/sig-storage-local-static-provisioner
+
 hooks:
   - events: ["prepare"]
     showlogs: true
@@ -176,6 +208,15 @@ releases:
     condition: createTargetPV.enabled
     values:
       - "{{ .Environment.Values.valuesPath }}"
+
+  - name: ais-local-static-provisioner
+    namespace: "{{ .Values | get \"namespace\" \"ais\" }}"
+    createNamespace: true
+    chart: sig-storage-local-static-provisioner/local-static-provisioner
+    version: 2.9.0
+    condition: localStaticProvisioner.enabled
+    values:
+      - "{{ .Environment.Values.localStaticProvisioner | get \"valuesPath\" \"\" }}"
 
   - name: ais-cluster
     namespace: "{{ .Values | get \"namespace\" \"ais\" }}"

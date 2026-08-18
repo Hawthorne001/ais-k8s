@@ -48,6 +48,12 @@
           "description": "Mount storage directly from host paths instead of using PersistentVolumes. When true, storageClass and size are not needed.",
           "examples": [true]
         },
+        "pvSelector": {
+          "type": "boolean",
+          "default": true,
+          "description": "Add a label selector to each target PVC so it binds only to a matching pre-labeled PV. Defaults to true. Set false when binding to PVs created by a provisioner such as local-static-provisioner, which does not carry the mpath label.",
+          "examples": [false]
+        },
         "mounts": {
           "type": "array",
           "description": "List of mountpath entries for each target. Each entry has a 'path' and optional 'label'.",

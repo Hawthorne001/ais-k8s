@@ -40,6 +40,11 @@ Its PVs carry a `claimRef` naming the one target PVC allowed to bind, so every n
 
 > **Note:** It is not possible to in-place upgrade from `create-target-pv-job` to the new `create-target-pv` chart. The old Job-created PVs are not Helm-owned and collide by name, so moving an existing cluster to this chart will require redeploying the cluster *entirely*.
 
+Instead of a create-pv chart, target PVCs can bind to PVs created by the [sig-storage local-static-provisioner](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner).
+Enable the `ais-local-static-provisioner` release with `localStaticProvisioner.enabled: true` and a [values file](./config/local-static-provisioner/sample.yaml) that sets the discovery directory, storage class, and a `nodeSelector` restricting the provisioner to target nodes.
+The disks must already be formatted and mounted under that discovery directory on each target node, one disk per subdirectory. The provisioner discovers them and creates one `WaitForFirstConsumer` local PV per disk.
+In your AIS values, set `mpathInfo.pvSelector: false` so the target PVCs bind by storage class rather than a per-disk label, and point `mpathInfo.storageClass` at the provisioner's class.
+
 ### State Storage
 
 The `stateStorage` field controls where AIS stores its cluster configuration and metadata on each node.
@@ -145,5 +150,6 @@ helmfile destroy --environment <your-env>
 | [ais-cluster](./charts/ais-cluster/)         | Create an AIS cluster resource, with the expectation the operator is already deployed |
 | [ais-create-target-pv](./charts/create-target-pv/)         | Create HostPath PersistentVolumes for target nodes, bound via WaitForFirstConsumer    |
 | [ais-create-target-pv-job](./charts/create-target-pv-job/) | Create claimRef-pinned target PVs via a pre-install Job, not Helm-managed              |
+| [local-static-provisioner](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner) | Discover pre-mounted disks and create one local PV each (upstream chart)               |
 | [tls-cert](./charts/tls-cert/)               | Create a cert-manager certificate                                                     |
                                                           

@@ -44,7 +44,7 @@ See [Node lifecycle](https://github.com/NVIDIA/aistore/blob/main/docs/lifecycle_
 helm/ais/scripts/label-nodes.sh --remove <cluster> <old-node>
 ```
 
-The AIS `nodeSelector` schedules by these labels, and the PV charts discover target nodes by the same ones.
+AIS schedules targets by these labels, and every supported PV provisioning method uses them to find target nodes.
 Removing them takes the node out of both.
 
 ### 3. Delete the pods
@@ -87,6 +87,7 @@ How they are deleted depends on where they came from:
 
 - [create-target-pv](../helm/ais/charts/create-target-pv/README.md) templates its PVs, so a node that is no longer discovered drops out of the rendered release and its PVs are deleted on the next sync.
 - [create-target-pv-job](../helm/ais/charts/create-target-pv-job/README.md) creates its PVs from a Job, outside Helm's ownership. They must be deleted directly, which is also what frees the node's target index.
+- [local-static-provisioner](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner) creates its PVs from the disks it discovers on each node, and since a retired node no longer runs the provisioner DaemonSet, its `Released` PVs are not recreated and are deleted directly with `kubectl delete pv`.
 - PVs provisioned outside these charts are deleted directly with `kubectl delete pv`.
 
 ### 6. Label the replacement node
@@ -112,6 +113,8 @@ cd helm/ais && helmfile sync --environment <your-env> --selector name=ais-create
 ```
 
 `create-target-pv-job` is a legacy chart with no Helmfile release and may be managed directly with `helm`.
+
+With `local-static-provisioner` there is no manual PV step. Its DaemonSet schedules onto the replacement node once the node joins the cluster, discovers the data disks mounted under its discovery directory, and creates one PV per disk.
 
 ### 8. Verify
 

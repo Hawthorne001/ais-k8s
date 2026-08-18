@@ -1,0 +1,20 @@
+# Values for the sig-storage local-static-provisioner chart.
+# The provisioner discovers disks already mounted under hostDir and creates one
+# local PV per disk. Each PV binds via WaitForFirstConsumer when the operator's
+# target PVC is scheduled onto that node.
+
+classes:
+  - name: ais-local-storage
+    # Discovery directory on the host. Each AIS data disk must already be
+    # formatted and mounted at a subdirectory of this path, e.g. /ais/nvme0n1.
+    hostDir: /ais
+    mountDir: /ais
+    volumeMode: Filesystem
+    # Create the WaitForFirstConsumer StorageClass named above. Retain leaves a
+    # released disk untouched. Delete has the provisioner wipe and re-publish it.
+    storageClass:
+      reclaimPolicy: Retain
+
+# Run the provisioner only on target nodes so PVs are created where targets schedule.
+nodeSelector:
+  nvidia.com/ais-target: ais
