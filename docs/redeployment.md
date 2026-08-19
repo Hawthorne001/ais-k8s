@@ -5,6 +5,29 @@ This document covers redeploying an AIStore cluster through the Kubernetes opera
 For a temporary stop where the same deployment will be restarted without deleting Kubernetes resources, use `shutdownCluster` instead.
 When `shutdownCluster` is enabled, the operator gracefully shuts down AIS and scales the cluster to zero without deleting data or configuration.
 
+## Preserving Cluster Configuration
+
+The operator applies `spec.configToUpdate` on every reconcile, so anything set there is restored on redeployment.
+
+Configuration changed at runtime through the AIS API is not in the spec.
+AIS keeps it in the state directory, which `cleanupMetadata: true` removes, so those changes are lost unless they are captured first.
+
+Save the running configuration before cluster teardown:
+
+```console
+ais config cluster --json > cluster-config.json
+```
+
+The dump contains every setting with its current value, not only the ones that were changed.
+Use it to identify what was customized rather than reapplying the file as a whole.
+
+Add the settings that should persist to `spec.configToUpdate`.
+Anything that should not live in the spec can be reapplied through the API:
+
+```console
+ais config cluster <name>=<value>
+```
+
 ## Cleanup Options
 
 The AIS custom resource has two cleanup options that control what happens when the resource is deleted.
@@ -67,13 +90,14 @@ AIS state caches cluster maps and daemon URLs that include the old protocol.
 
 Recommended flow:
 
-1. Update the existing AIS custom resource so deletion uses:
+1. Save the running configuration as described in [Preserving Cluster Configuration](#preserving-cluster-configuration).
+2. Update the existing AIS custom resource so deletion uses:
 
    ```yaml
    cleanupMetadata: true
    cleanupData: false
    ```
 
-2. Delete the AIS custom resource and wait for the operator to finish cleanup.
-3. Check for remaining PVCs and retained PVs as described above.
-4. Redeploy the AIS cluster with the new protocol and TLS settings according to the [TLS guide](./tls.md).
+3. Delete the AIS custom resource and wait for the operator to finish cleanup.
+4. Check for remaining PVCs and retained PVs as described above.
+5. Redeploy the AIS cluster with the new protocol and TLS settings according to the [TLS guide](./tls.md).
