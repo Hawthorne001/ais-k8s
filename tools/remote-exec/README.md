@@ -1,7 +1,7 @@
 # remote-exec
 
 Helm chart for privileged, host-level access on Kubernetes nodes.
-Use it to run one-off maintenance scripts across the cluster (DaemonSet) or open an interactive debug shell on a single node (Pod).
+Use it to run one-off maintenance scripts across the cluster or open an interactive debug shell on a node.
 
 In most cases, the access here is not necessary and one of the following options is more suitable:
 
@@ -60,6 +60,53 @@ helm uninstall grow-fs -n kube-system
 | `values-ring-buffers.yaml` | DaemonSet | `ring-buffers.sh`        | Resize ethtool ring buffers on `ens300np0` |
 | `values-up-kernel.yaml`    | DaemonSet | `up-kernel.sh`           | Update `kernel-uek` from `ol8_UEKR7`       |
 | `values-node-doctor.yaml`  | DaemonSet | `node-doctor.sh`         | Run Node Doctor `--check` on all nodes (see `scripts/node-doctor.md`) |
+| `values-clean-ais.yaml`    | DaemonSet | `clean-ais.sh`           | Remove AIS metadata, and optionally bucket data, from the selected nodes' paths |
+
+### Clean AIS
+
+Removes `.ais.*` from each path in `AIS_PATHS`, and with `CLEAN_DATA=true` the bucket directories alongside them.
+
+> **NOTE:** AIS must *not* be running on selected nodes when this script is run.
+
+> **Warning!** If no `nodeSelector` is provided, the DaemonSet is scheduled on every node in the cluster and the given paths are cleaned on all of them.
+
+Target one node with `kubernetes.io/hostname`:
+
+```yaml
+nodeSelector:
+  kubernetes.io/hostname: <node>
+
+env:
+  - name: AIS_PATHS
+    value: "/ais/nvme0n1 /ais/nvme1n1"
+  - name: CLEAN_DATA
+    value: "false"
+```
+
+Target every node with label `nvidia.com/ais-target: <cluster>`:
+
+```yaml
+nodeSelector:
+  nvidia.com/ais-target: <cluster>
+
+env:
+  - name: AIS_PATHS
+    value: "/ais/nvme0n1 /ais/nvme1n1"
+  - name: CLEAN_DATA
+    value: "true"
+```
+
+```bash
+helm upgrade --install clean-ais . -f values-clean-ais.yaml -f clean-one.yaml -n kube-system
+kubectl get pods -n kube-system -l app=clean-ais
+kubectl logs -n kube-system -l app=clean-ais -c run-script
+```
+
+When done:
+
+```bash
+helm uninstall clean-ais -n kube-system
+```
 
 ## Values
 
@@ -70,6 +117,7 @@ helm uninstall grow-fs -n kube-system
 | `workload.script`  | `""`                           | Bash script under `scripts/` to run at start. Empty runs `sleep infinity` (debug pod). Missing file fails at `helm template` / install. |
 | `nodeName`         | `""`                           | Pin a **Pod** to a specific node. Mutually exclusive with `nodeSelector`.                                                               |
 | `nodeSelector`     | `{}`                           | Schedule on nodes with matching labels (DaemonSet or Pod). Mutually exclusive with `nodeName`.                                          |
+| `env`              | `[]`                           | Environment variables passed to the script                                                                                              |
 | `image.repository` | `docker.io/aistorage/ais-util` | Container image                                                                                                                         |
 | `image.tag`        | `v4.5`                         | Image tag                                                                                                                               |
 | `image.pullPolicy` | `IfNotPresent`                 | Image pull policy                                                                                                                       |

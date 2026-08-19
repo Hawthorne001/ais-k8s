@@ -12,6 +12,9 @@ nodeName: ""
 # Schedule on nodes with these labels (daemonset or pod; mutually exclusive with nodeName)
 nodeSelector: {}
 
+# Environment variables passed to the script, in container env format
+env: []
+
 image:
   repository: docker.io/aistorage/ais-util
   tag: v4.5

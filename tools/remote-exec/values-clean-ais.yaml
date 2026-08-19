@@ -1,0 +1,24 @@
+name: clean-ais
+
+workload:
+  kind: daemonset
+  script: clean-ais.sh
+
+# Nodes to clean. Set kubernetes.io/hostname to target a single node, or
+# any label to target every node matching it (e.g. nvidia.com/ais-target:
+# <cluster> for every target node in a cluster).
+# An empty selector cleans the given paths on every node in the cluster.
+nodeSelector: {}
+
+env:
+  # Space-separated host paths to clean (e.g. "/ais/nvme0n1 /ais/nvme1n1 /etc/ais").
+  - name: AIS_PATHS
+    value: ""
+  # Also remove bucket directories and the objects in them
+  - name: CLEAN_DATA
+    value: "false"
+
+image:
+  repository: docker.io/aistorage/ais-util
+  tag: v4.9
+  pullPolicy: IfNotPresent

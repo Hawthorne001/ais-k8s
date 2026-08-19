@@ -32,6 +32,13 @@ Fail if nodeName and nodeSelector are both set.
 {{- end }}
 {{- end }}
 
+{{- define "remote-exec.env" -}}
+{{- with .Values.env }}
+env:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
 {{- define "remote-exec.volumeMounts" -}}
 {{- if .Values.workload.script }}
 - name: script
@@ -68,6 +75,7 @@ initContainers:
     command:
       - /bin/bash
       - /scripts/{{ .Values.workload.script }}
+    {{- include "remote-exec.env" . | nindent 4 }}
     securityContext:
       privileged: true
     volumeMounts:
@@ -86,6 +94,7 @@ containers:
     {{- else }}
     command: ["sleep", "infinity"]
     {{- end }}
+    {{- include "remote-exec.env" . | nindent 4 }}
     securityContext:
       privileged: true
     volumeMounts:
