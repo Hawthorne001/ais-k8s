@@ -1,0 +1,8 @@
+Deployed AIS AuthN with helm chart version {{ .Chart.Version }} to namespace {{ .Release.Namespace }}
+
+To learn more about the release, try:
+$ helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+$ helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}
+$ kubectl get aistoreauth {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+For AuthN token and authentication options, see https://docs.nvidia.com/aistore/authn

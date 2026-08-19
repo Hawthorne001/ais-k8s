@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "AIS AuthN (operator-managed) Chart Values",
+  "description": "Types the values this chart owns. The blocks that map onto AIStoreAuthSpec are only checked for shape: their contents are passed through to the CRD, whose schema and validating webhook validate them.",
+  "type": "object",
+  "properties": {
+    "adminSecret": { "$ref": "#/definitions/secretRef" },
+    "hmacSecret": { "$ref": "#/definitions/secretRef" },
+    "rsaPassphraseSecret": { "$ref": "#/definitions/secretRef" },
+    "config": {
+      "type": "object",
+      "description": "spec.config, passed through unchanged."
+    },
+    "tls": {
+      "type": "object",
+      "description": "spec.tls, passed through unchanged."
+    },
+    "persistence": {
+      "type": "object",
+      "description": "spec.persistence, passed through unchanged."
+    },
+    "externalAccess": {
+      "type": "object",
+      "description": "spec.externalAccess, passed through unchanged."
+    },
+    "deployment": {
+      "type": "object",
+      "description": "spec.deployment, passed through unchanged."
+    },
+    "persistentVolume": {
+      "type": "object",
+      "description": "Chart-only. Creates a local PersistentVolume for persistence. Rendered only when hostPath is set.",
+      "properties": {
+        "hostPath": {
+          "type": "string",
+          "description": "Host directory backing the volume.",
+          "examples": ["/etc/ais/authn"]
+        },
+        "reclaimPolicy": {
+          "type": "string",
+          "enum": ["Retain", "Delete"],
+          "description": "Reclaim policy for the created volume. Defaults to Retain, the only policy that keeps AuthN's users and RSA keys once the claim goes away."
+        },
+        "nodeAffinity": {
+          "type": "object",
+          "description": "Pin a local volume to specific nodes."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "definitions": {
+    "secretRef": {
+      "type": "object",
+      "description": "Reference to a Secret managed outside this chart.",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

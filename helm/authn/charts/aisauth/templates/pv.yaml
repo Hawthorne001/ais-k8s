@@ -1,0 +1,33 @@
+{{- $persistence := .Values.persistence | default dict }}
+{{- with .Values.persistentVolume }}
+{{- with .hostPath }}
+{{/*
+A local volume for AuthN state.
+The resource-policy annotation keeps AuthN's users and RSA keys on `helm uninstall`,
+matching the Retain default on persistence.deletionPolicy.
+*/}}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $persistence.volumeName | default (printf "%s-pv" $.Release.Name) }}
+  labels:
+    {{- include "aisauth.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  {{- with $persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  capacity:
+    storage: {{ $persistence.size | default "256Mi" }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: {{ $.Values.persistentVolume.reclaimPolicy | default "Retain" }}
+  hostPath:
+    path: {{ . }}
+  {{- with $.Values.persistentVolume.nodeAffinity }}
+  nodeAffinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

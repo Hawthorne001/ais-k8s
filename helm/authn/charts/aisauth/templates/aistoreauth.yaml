@@ -1,0 +1,44 @@
+{{/*
+The AIS operator reconciles the AuthN ConfigMap, PVC, Deployment, Services and Certificate from this one resource.
+*/}}
+apiVersion: auth.ais.nvidia.com/v1alpha1
+kind: AIStoreAuth
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aisauth.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.adminSecret }}
+  adminSecret:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- /* Setting hmacSecret is what selects HMAC signing. */}}
+  {{- with .Values.hmacSecret }}
+  hmacSecret:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.rsaPassphraseSecret }}
+  rsaPassphraseSecret:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.config }}
+  config:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.persistence }}
+  persistence:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.externalAccess }}
+  externalAccess:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.deployment }}
+  deployment:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}

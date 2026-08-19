@@ -1,0 +1,23 @@
+# Default values for the aisauth chart.
+#
+# This chart renders only the resources the AIS operator cannot own:
+#   - optional PersistentVolume
+#   - the AIStoreAuth custom resource
+#
+# Credential / signing Secrets must already exist. See ./README.md.
+
+adminSecret: {}
+hmacSecret: {}
+rsaPassphraseSecret: {}
+config: {}
+tls: {}
+persistence: {}
+externalAccess: {}
+deployment:
+  container:
+    image: docker.io/aistorage/authn:v4.9
+
+# Chart-only values.
+
+# hostPath PersistentVolume for persistence. Rendered only when hostPath is set.
+persistentVolume: {}
