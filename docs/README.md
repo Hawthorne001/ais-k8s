@@ -9,6 +9,8 @@ This document provides guidance for deploying [AIStore](https://github.com/NVIDI
    - [Operator Deployment](#operator-deployment)
    - [Node Selection](#node-selection)
    - [AIStore Deployment](#aistore-deployment)
+   - [Configuring Network Access](#configuring-network-access)
+   - [Securing Access with TLS](#securing-access-with-tls)
 1. [**Post-Deployment Steps**](#post-deployment-steps)
    - [Setting Up a Debugging Pod](#setting-up-a-debugging-pod)
    - [Redeployment](#redeployment)
@@ -92,12 +94,14 @@ Again, there are a few deployment options:
 
 [Multiple storage targets](multiple_targets_per_node.md) can also be deployed on a single K8s node for testing or higher availability.
 
+To deploy with authentication, see the [authentication doc](./authentication.md).
+
 After deployment, verify all AIS pods are ready and running:
 ```
 $ watch kubectl get pods -n <cluster-namespace>
 ```
 
-### Configuring access
+### Configuring network access
 
 See the [operator docs](../operator/README.md#enabling-external-access) for configuring external access to AIS proxies and targets.
 

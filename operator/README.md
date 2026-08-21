@@ -97,6 +97,10 @@ spec:
             optional: true
 ```
 
+#### Configure Operator API Access to Authenticated AIStore
+
+See the [authentication doc](../docs/authentication.md) for configuring Operator access to the AIStore API for admin control on a per-cluster basis.  
+
 #### Auth Service TLS Configuration
 
 When using auth services with HTTPS, TLS certificate verification is enabled automatically.

@@ -63,16 +63,11 @@ Clients must still have access to any Secret or ConfigMap referenced in the prof
 In the `AIStore` custom resource spec, `spec.auth.profileRef` defines how the **AIS operator** obtains tokens from the auth provider. 
 The tokens fetched using this profile information are included when the operator makes calls to this cluster's AIStore API for management.
 
-```yaml
-spec:
-  auth:
-    profileRef:
-      name: aistore-auth-admin
-```
+See the [example config](../operator/config/samples/aistore_with_profile_ref.yaml).
 
 The AIStore resource editor's `use` access will be checked by the validating webhook on submission.
 
-See example usage:
+See full deployment usage examples:
 
 - Local AuthN: [AIStoreAuthProfile manifest](../local/manifests/auth-profile.yaml), [Helm values](../helm/ais/config/ais/local-auth.yaml)
 - Keycloak: [AIStoreAuthProfile manifest](../auth/keycloak/manifests/auth-profile.yaml), [Helm values](../helm/ais/config/ais/keycloak.yaml)

@@ -1,5 +1,6 @@
+# Deprecated example configurations for defining operator auth token provisioning directly in AIStore spec
 ---
-# Example 1: Username/Password Authentication (traditional approach)
+# Example 1: Username/Password Authentication
 apiVersion: ais.nvidia.com/v1beta1
 kind: AIStore
 metadata:
@@ -82,47 +83,8 @@ spec:
     mounts:
       - path: /ais/sda
         size: 100Gi
-
 ---
-# Example 3: Auth Profile Reference
-apiVersion: ais.nvidia.com/v1beta1
-kind: AIStore
-metadata:
-  name: ais-auth-profile
-  namespace: ais
-spec:
-  size: 3
-
-  # Resolve the auth provider from a cluster-scoped AIStoreAuthProfile.
-  # See aistoreauthprofile.yaml for the profile itself, and aisauthprofile_rbac.yaml
-  # for granting the "use" verb this reference requires.
-  auth:
-    profileRef:
-      name: prod-auth-token-exchange
-
-  # JWT signing key secret (required for AuthN verification)
-  authNSecretName: ais-authn-secret
-
-  nodeImage: "docker.io/aistorage/aisnode:latest"
-  initImage: "docker.io/aistorage/ais-init:latest"
-
-  proxySpec:
-    servicePort: 51080
-    portPublic: 51080
-    portIntraControl: 51082
-    portIntraData: 51083
-
-  targetSpec:
-    servicePort: 51081
-    portPublic: 51081
-    portIntraControl: 51082
-    portIntraData: 51083
-    mounts:
-      - path: /ais/sda
-        size: 100Gi
-
----
-# Example 4: Token Exchange with Custom TLS CA Certificates
+# Example 3: Token Exchange with Custom TLS CA Certificates
 apiVersion: ais.nvidia.com/v1beta1
 kind: AIStore
 metadata:

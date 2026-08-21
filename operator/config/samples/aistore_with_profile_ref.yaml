@@ -1,0 +1,41 @@
+# AIStoreAuthProfile AIStore CR Reference via spec.auth.profileRef
+apiVersion: ais.nvidia.com/v1beta1
+kind: AIStore
+metadata:
+  name: ais-auth-profile
+  namespace: ais
+spec:
+  size: 3
+
+  # Resolve the auth provider from a cluster-scoped AIStoreAuthProfile.
+  # See aistoreauthprofile.yaml for the profile itself, and aisauthprofile_rbac.yaml
+  # for granting the "use" verb this reference requires.
+  auth:
+    profileRef:
+      name: prod-auth-token-exchange
+
+  # JWT signing key secret (required for HMAC-based signature verification)
+  authNSecretName: ais-authn-secret
+  configToUpdate:
+    auth:
+      enabled: true
+      signature:
+        method: hmac
+
+  nodeImage: "docker.io/aistorage/aisnode:latest"
+  initImage: "docker.io/aistorage/ais-init:latest"
+
+  proxySpec:
+    servicePort: 51080
+    portPublic: 51080
+    portIntraControl: 51082
+    portIntraData: 51083
+
+  targetSpec:
+    servicePort: 51081
+    portPublic: 51081
+    portIntraControl: 51082
+    portIntraData: 51083
+    mounts:
+      - path: /ais/sda
+        size: 100Gi

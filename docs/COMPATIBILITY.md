@@ -22,6 +22,25 @@ The following matrix shows the compatible versions of AIStore ([aisnode](https:/
 
 >**NOTE:** We recommend and support only the latest versions of AIStore and the AIS K8s Operator.
 
+## Migrating AIStore Custom Resources with Auth
+
+Operator [v3.3.0](https://github.com/NVIDIA/ais-k8s/releases/tag/v3.3.0) added support for [AIStoreAuthProfiles](./auth_profile.md) and deprecated individual `spec.auth` options in the AIStore custom resource spec. 
+These `spec.auth` options will be removed in major release `4.0.0`.
+
+To perform live migration of a cluster using authentication from a previous AIStore CR version, you **must** upgrade through the `3.3.0` or `3.4.0` operator releases and transition your config to use the new auth profiles. 
+The `AIStoreAuthProfile` resource supports the same functionality, but must be managed as a separate resource and referenced via `spec.auth.profileRef`.
+
+While running `3.3.0` or `3.4.0`:
+
+1. Create an `AIStoreAuthProfile` holding the auth provider configuration currently in `spec.auth`.
+2. Grant the `use` verb on that profile to whoever applies the `AIStore` resource.
+3. Set `spec.auth.profileRef.name` on every `AIStore` and drop the old `spec.auth.*` fields.
+
+The only notable removal is `spec.auth.tokenExchange.tokenPath`, which will be removed without a replacement.
+The addition of `AIStoreAuthProfile` `spec.tokenExchange.subjectTokenAudience` field allows for custom `aud` fields in the provisioned JWT, which was the primary reasoning for supporting custom token injection. 
+
+See the [AIStoreAuthProfile doc](./auth_profile.md) for details and examples. 
+
 ## Operator v3.0.0
 
 This major release drops support for several deprecated features. 

@@ -7,7 +7,7 @@ The AIStore Authentication Server (AuthN) provides secure access to AIStore by l
 
 For more information on AuthN, visit the [AIStore AuthN documentation](https://github.com/NVIDIA/aistore/blob/main/docs/authn.md).
 
-## Setting Up AuthN in Kubernetes
+## Deploying AuthN in Kubernetes
 
 ### Deploy with Helm
 
@@ -32,77 +32,9 @@ The best way to deploy authN is to use our [provided Helm chart](../helm/authn/R
 - **AuthN Deployment**  
    - This runs the AuthN pod and connects it with the other resources.
 
-## How Components Interact with AuthN
+## AuthN Clients
 
-When you enable authentication in an AIStore Cluster, all requests must include a valid signed JWT token.
-You can obtain a token by logging in with the correct credentials on the AuthN server.
-AIStore verifies the signatures of these tokens with the JWT signing key mounted from the secret created by AuthN.
-Requests without a token or with an invalid token are rejected. 
-
-Here’s how different components interact with AuthN:
-
-### AIS Operator
-
-If AuthN is enabled for your AIStore cluster, AIS Operator requires a token since it frequently calls AIStore lifecycle APIs. 
-
-> **NOTE:** `spec.auth` fields described below are now **deprecated**.
-> See the [AIStoreAuthProfile profile guide](./auth_profile.md) and configure `spec.auth.profileRef` instead.
-
-The operator supports two authentication modes:
-
-#### Username/Password Authentication
-
-AIS Operator can log in as an admin user using the username and password specified for each cluster in a configured secret.
-To allow for each cluster to configure its own admin credentials location, the operator reads the location of this secret from AIS spec.
-
-Specify the location of the admin credentials secret directly in the AIS spec for each cluster.
-For examples of `auth.usernamePassword` see the auth section in the [provided config examples](../operator/config/samples/aistore_with_authn_in_crd.yaml).
-
-#### Token Exchange Authentication
-
-The operator also supports exchanging a token with the authentication service for an AIS JWT token.
-This eliminates the need to store static admin credentials.
-
-On versions 3.3 and below, this token is read from the filesystem (e.g., Kubernetes service account token or OIDC token).
-Later versions request a short-lived token for the operator's own ServiceAccount.
-
-Defaults:
-- `tokenPath`: Empty -- the operator requests a short-lived token for its own ServiceAccount.
-  - For versions 3.3 and below: `/var/run/secrets/kubernetes.io/serviceaccount/token`
-- `tokenExchangeEndpoint`: `/token`
-
-**Mounting Custom Tokens:**
-To use a custom OIDC token, add a projected volume to the operator deployment:
-```yaml
-volumes:
-- name: oidc-token
-  projected:
-    sources:
-    - serviceAccountToken:
-        path: token
-        expirationSeconds: 3600
-        audience: ais-authn
-```
-
-Then set `tokenPath` to the projected path to tell the operator to reference it instead of minting a new token.
-
-This mode requires the authentication service to support a token exchange endpoint (default: `/token`).
-
-For configuring token exchange in the AIS spec see `auth.tokenExchange` in the [provided config examples](../operator/config/samples/aistore_with_authn_in_crd.yaml)
-
-### AIStore Cluster
-
-AIStore verifies JWT tokens using the AuthN signing key secret created at deployment.
-Intra-cluster communication does not require tokens.
-AIStore does not call AuthN APIs; instead, AuthN calls AIStore APIs during cluster registration.
-
-To add a signing key secret to an AIStore cluster, simply add the `authNSecretName` field to the AIStore CRD.
-
-```yaml
-authNSecretName: "jwt-signing-key"
-```
-
-### All Other Clients
+See the [authentication docs](./authentication.md) for information about configuring the AIStore cluster and operator to use authN and other authentication services.
 
 To interact with AIStore, clients need a signed JWT token.
 By default, an `admin` user with super-user privileges is created with a mandatory provided password.
@@ -127,33 +59,6 @@ For how AuthN certificates are issued and trusted, see the [TLS guide](./tls.md)
 To switch the protocol of an existing AuthN server from HTTP to HTTPS (or vice versa), you can apply the new configuration specification over the current deployment.
 This will automatically redeploy the AuthN server with the updated settings.
 
-We strongly recommend using the [AuthN Helm chart](../helm/authn/README.md) for this process.
+We recommend using the [AuthN Helm chart](../helm/authn/README.md) for this process.
 
-This will also require an update to the `spec.auth` fields in the AIStore spec used for cluster-specific operator token issuance.
-See [AIS Operator section above](#ais-operator)
-
-## Disabling AuthN in an Existing AIStore Deployment
-
-If you have AuthN enabled but no longer wish to use it, you can disable it via the CLI:
-
-```bash
-ais config cluster set auth.enabled=false
-```
-
-Or in the AIS spec:
-
-```yaml
-spec:
-   configToUpdate:
-      authn:
-         enabled: false 
-```
-
-## Enabling AuthN on a Running AIStore Server
-
-1. Deploy Authn using our [provided Helm chart](../helm/authn/README.md).
-1. [Update the Operator](#ais-operator) to give it credentials for fetching a token and specify the AuthN server to use. For Operator versions 2.5.0 and before, update the `AUTHN_*` environment variables. 
-1. Update the AIS custom resource `spec.authNSecretName` with the signing key secret name created by the AuthN Deployment (default is `ais-authn-jwt-signing-key`).
-
-This will trigger a rollout of all proxies to reload the provided secret.
-AIS will begin authenticating all requests.
+This will require an update to `spec.serviceURL` and potentially `spec.tls` in the `AIStoreAuthProfile` referenced by the AIStore spec.
