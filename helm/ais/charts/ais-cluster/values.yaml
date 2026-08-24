@@ -28,7 +28,10 @@ clusterDomain:
 stateStorage:
 stateStorageClass:
 authNSecretName:
+# auth configures how the operator provisions tokens for its AIS API client.
 auth:
+#   profileRef:
+#     name: ais-admin
 operatorSkipVerifyCrt:
 enableExternalLB: false
 publicNetDNSMode:

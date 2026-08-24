@@ -3,4 +3,4 @@ name: ais-cluster
 description: A Helm chart for deploying AIS on Kubernetes
 appVersion: "4.9"
 type: application
-version: 0.19.0
+version: 0.20.0

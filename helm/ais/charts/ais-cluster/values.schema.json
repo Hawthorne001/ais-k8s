@@ -391,14 +391,27 @@
       "type": ["object", "null"],
       "description": "Auth specifies the Auth service configuration for admin authentication. If not specified, the operator will look for configuration in the legacy ConfigMap.",
       "properties": {
+        "profileRef": {
+          "type": "object",
+          "description": "ProfileRef references the cluster-scoped AIStoreAuthProfile holding the auth provider configuration (operator >= 3.3.0). When set, the remaining auth fields are ignored. The submitting user must have 'use' access to the referenced profile.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of the AIStoreAuthProfile to use for fetching AIS tokens.",
+              "examples": ["ais-admin"]
+            }
+          },
+          "required": ["name"]
+        },
         "serviceURL": {
           "type": "string",
-          "description": "ServiceURL is the base URL of the AuthN service (scheme + host + optional port, no path). Defaults to 'http://ais-authn.ais:52001'.",
+          "description": "Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md. ServiceURL is the base URL of the AuthN service (scheme + host + optional port, no path). Defaults to 'http://ais-authn.ais:52001'.",
           "examples": ["https://ais-authn.ais:52001", "http://ais-authn.ais:52001"]
         },
         "usernamePassword": {
           "type": "object",
-          "description": "UsernamePassword authentication configuration using static credentials.",
+          "description": "Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md. UsernamePassword authentication configuration using static credentials.",
           "properties": {
             "secretName": {
               "type": "string",
@@ -415,7 +428,7 @@
         },
         "tokenExchange": {
           "type": "object",
-          "description": "TokenExchange authentication configuration using RFC 8693 OAuth 2.0 Token Exchange. This is the preferred method for workload identity.",
+          "description": "Deprecated: use profileRef to reference an existing AIStoreAuthProfile. See https://github.com/NVIDIA/ais-k8s/blob/main/docs/auth_profile.md. TokenExchange authentication configuration using RFC 8693 OAuth 2.0 Token Exchange. This is the preferred method for workload identity.",
           "properties": {
             "tokenPath": {
               "type": "string",
