@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "AIS AuthN Secrets Chart Values",
+  "description": "Credential and signing Secrets for AIS AuthN, rendered separately from the aisauth chart. Only secret material the operator cannot see is validated here. AuthN spec validation is left to the CRD schema and the AIStoreAuth webhook.",
+  "type": "object",
+  "required": ["adminPassword"],
+  "properties": {
+    "adminPassword": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Superuser password."
+    },
+    "adminUsername": {
+      "type": "string",
+      "description": "Superuser name.",
+      "examples": ["admin"]
+    },
+    "hmacKey": {
+      "type": "string",
+      "description": "HMAC signing key. Renders the HMAC Secret."
+    },
+    "rsaPassphrase": {
+      "type": "string",
+      "description": "Passphrase protecting the RSA private key. Renders the RSA passphrase Secret."
+    },
+    "adminSecretName": {
+      "type": "string",
+      "description": "Rename the rendered admin Secret."
+    },
+    "hmacSecretName": {
+      "type": "string",
+      "description": "Rename the rendered HMAC Secret."
+    },
+    "rsaPassphraseSecretName": {
+      "type": "string",
+      "description": "Rename the rendered RSA passphrase Secret."
+    }
+  }
+}

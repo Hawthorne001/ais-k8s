@@ -29,7 +29,7 @@ Reusing a retained volume that already holds a database needs neither.
 
 This chart does not create these Secrets. Create them manually or have a controller create them (including an annotation/sidecar injector), then set `adminSecret.name`, `hmacSecret.name` or `rsaPassphraseSecret.name` to point at them (`SU-NAME` / `SU-PASS` for admin credentials, `SIGNING-KEY` for HMAC, `RSA-PASSPHRASE` for the RSA key passphrase).
 
-Secret creation must be added in a separate chart, wired in via helmfile.
+The [`aisauth-secrets`](../aisauth-secrets) chart renders these Secrets. Install it before this chart: the `AIStoreAuth` validating webhook looks up every referenced Secret at admission and rejects the resource when one is missing.
 
 See [AIStore AuthN docs](https://docs.nvidia.com/aistore/authn) for more information.
 

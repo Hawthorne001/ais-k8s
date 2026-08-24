@@ -1,0 +1,4 @@
+# Secret material read from the environment. See ./README.md.
+adminPassword: {{ requiredEnv "AUTHN_ADMIN_PASSWORD" | quote }}
+hmacKey: {{ env "JWT_SIGNING_KEY" | quote }}
+rsaPassphrase: {{ env "AUTHN_RSA_PASSPHRASE" | quote }}
