@@ -31,6 +31,7 @@ initImage:
 logSidecar:
   image:
     tag: v1.2
+operatorSkipVerifyCrt: false
 adminClient:
   enabled: true
   # Use trust manager bundle for client

@@ -44,19 +44,7 @@ spec:
   operatorSkipVerifyCrt: false
 ```
 
-The operator environment variable is still supported as a deprecated fallback when `spec.operatorSkipVerifyCrt` is unset:
-
-```yaml
-controllerManager:
-  manager:
-    env:
-      operatorSkipVerifyCrt: "False"  # Enable certificate verification
-```
-
-For kustomize deployments, modify [config/overlays/default/manager_env_patch.yaml](config/overlays/default/manager_env_patch.yaml).
-
-When neither the CR field nor the env var is set, the operator verifies certificates.
-Note that the default kustomize overlay ships `OPERATOR_SKIP_VERIFY_CRT="True"`, so a default kustomize install skips verification until you override it.
+By default, the CR field is unset and the operator verifies all certificates.
 
 #### Configuring Custom CA Certificates for AIS Clusters (Optional)
 

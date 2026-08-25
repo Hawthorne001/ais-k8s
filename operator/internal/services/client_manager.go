@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	aiscos "github.com/NVIDIA/aistore/cmn/cos"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	aisclient "github.com/ais-operator/internal/client"
 	"github.com/ais-operator/internal/resources/aistore/proxy"
@@ -24,9 +23,7 @@ import (
 )
 
 const (
-	APIModePublic = "public"
-	// Deprecated: Use AIStore CR field spec.operatorSkipVerifyCrt instead.
-	EnvSkipVerify  = "OPERATOR_SKIP_VERIFY_CRT"
+	APIModePublic  = "public"
 	ClientCertFile = "tls.crt"
 	ClientKeyFile  = "tls.key"
 	ClientCAFile   = "ca.crt"
@@ -202,27 +199,11 @@ func (m *AISClientManager) getTLSConfig(ctx context.Context, ais *aisv1.AIStore)
 
 func configureCAVerification(ctx context.Context, ais *aisv1.AIStore, tlsConf *tls.Config, tlsDir string) error {
 	logger := logf.FromContext(ctx)
-	var (
-		skipVerify bool
-		err        error
-	)
-	// Prefer the per-cluster CR setting. Fall back to operator env var for backward compatibility.
-	if ais.Spec.OperatorSkipVerifyCrt != nil {
-		skipVerify = *ais.Spec.OperatorSkipVerifyCrt
-	} else {
-		raw, exists := os.LookupEnv(EnvSkipVerify)
-		if exists {
-			logger.Info("DEPRECATED: using operator env for skip-verify fallback; set spec.operatorSkipVerifyCrt on AIStore CR instead", "env", EnvSkipVerify)
-			skipVerify, err = aiscos.ParseBool(raw)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	if skipVerify {
+	if ais.Spec.OperatorSkipVerifyCrt != nil && *ais.Spec.OperatorSkipVerifyCrt {
 		tlsConf.InsecureSkipVerify = true
 		return nil
 	}
+
 	// Add CA from our specified TLS config dir to the system trusted CA pool
 	providedCA := filepath.Join(tlsDir, ClientCAFile)
 	caPool, err := loadOptionalProvidedCA(logger, providedCA)

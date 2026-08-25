@@ -1,6 +1,4 @@
 controllerManager:
   manager:
-    env:
-      operatorSkipVerifyCrt: "false"
     # Trust bundle for requests to AIS API
     aisCAConfigmapName: aistore.nvidia.com

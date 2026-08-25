@@ -29,8 +29,6 @@ spec:
         command:
         - /manager
         env:
-        - name: OPERATOR_SKIP_VERIFY_CRT
-          value: {{ quote .Values.controllerManager.manager.env.operatorSkipVerifyCrt }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag

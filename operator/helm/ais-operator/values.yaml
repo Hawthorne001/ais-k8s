@@ -11,8 +11,6 @@ controllerManager:
       capabilities:
         drop:
           - ALL
-    env:
-      operatorSkipVerifyCrt: "True"
     image:
       repository: docker.io/aistorage/ais-operator
       tag: v3.4.0

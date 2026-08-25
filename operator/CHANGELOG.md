@@ -8,6 +8,16 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ---
 
+## v4.0.0
+
+### Removed
+
+- `OPERATOR_SKIP_VERIFY_CRT` env var. 
+  - Use `spec.operatorSkipVerifyCrt` to control TLS certificate verification. 
+  - Note this defaults to false unlike the removed default Helm value for `OPERATOR_SKIP_VERIFY_CRT`. 
+
+---
+
 ## v3.4.0
 
 ### Added 

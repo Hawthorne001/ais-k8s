@@ -485,7 +485,7 @@ type AIStoreSpec struct {
 	// OperatorSkipVerifyCrt controls TLS verification for Operator -> AIS API HTTPS calls.
 	// When false, the operator verifies certificates using trusted CAs.
 	// When true, certificate verification is disabled.
-	// When unset, the operator falls back to deprecated OPERATOR_SKIP_VERIFY_CRT.
+	// Default behavior is to verify certificates.
 	// +optional
 	OperatorSkipVerifyCrt *bool `json:"operatorSkipVerifyCrt,omitempty"`
 

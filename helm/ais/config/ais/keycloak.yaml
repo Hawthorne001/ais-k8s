@@ -32,6 +32,7 @@ configToUpdate:
 
 # Sets auth.oidc.issuer_ca_bundle above with an automatic mount-point for AIS to trust the issuer
 issuerCAConfigMap: aistore.nvidia.com
+operatorSkipVerifyCrt: false
 
 # Client auth API config used by the operator (see auth/keycloak/manifests/auth-profile.yaml)
 auth:

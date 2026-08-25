@@ -141,7 +141,6 @@ patches:
 - path: manager_auth_metric_patch.yaml
 - path: manager_webhook_patch.yaml
 - path: webhook_cainjection_patch.yaml
-- path: manager_env_patch.yaml
 - path: manager_ca_configmap_patch.yaml
 - path: manager_authn_ca_configmap_patch.yaml
 - path: aistores_cainjection_patch.yaml
