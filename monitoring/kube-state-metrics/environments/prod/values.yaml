@@ -19,3 +19,5 @@ metricAllowlist:
   - kube_statefulset_status_replicas
   - kube_statefulset_status_replicas_ready
   - kube_resourcequota
+  - kube_customresource_aistore_status_condition
+  - kube_customresource_aistore_status_state

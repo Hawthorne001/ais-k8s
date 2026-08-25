@@ -119,6 +119,23 @@ spec:
           annotations:
             summary: AIS Target is unavailable
             description: {{`"Target in statefulset '{{ $labels.statefulset }}' in namespace '{{ $labels.namespace }}' is unavailable."`}}
+        - alert: AIStoreClusterNotReady
+          expr: |
+            kube_customresource_aistore_status_condition{type="Ready", status="True", cluster=~"{{ .Values.clusterRegex }}"} == 0
+            unless on (cluster, namespace, name)
+            kube_customresource_aistore_status_state{state="Shutdown", cluster=~"{{ .Values.clusterRegex }}"}
+            unless on (cluster, namespace)
+            (sum by (cluster, namespace) (
+              kube_statefulset_status_replicas{statefulset=~".*(proxy|target)$", cluster=~"{{ .Values.clusterRegex }}"}
+              - on (cluster, namespace, statefulset)
+              kube_statefulset_status_replicas_ready{statefulset=~".*(proxy|target)$", cluster=~"{{ .Values.clusterRegex }}"}
+            ) > 0)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: AIStore cluster not ready
+            description: {{`"AIStore '{{ $labels.name }}' in namespace '{{ $labels.namespace }}' has all proxy and target pods available but has not reported Ready for 15 minutes."`}}
         - alert: ArgoCDAppNotHealthy
           expr: kube_customresource_argocd_app_status{health!="Healthy", cluster=~"{{ .Values.clusterRegex }}"} == 1
           for: 15m

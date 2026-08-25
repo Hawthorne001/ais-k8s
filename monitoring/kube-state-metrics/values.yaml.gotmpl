@@ -7,6 +7,9 @@ rbac:
     - apiGroups: ["argoproj.io"]
       resources: ["applications"]
       verbs: ["list", "watch"]
+    - apiGroups: ["ais.nvidia.com"]
+      resources: ["aistores"]
+      verbs: ["list", "watch"]
 
 customResourceState:
   enabled: true
@@ -31,6 +34,34 @@ customResourceState:
                   labelsFromPath:
                     health: [health, status]
                     sync: [sync, status]
+        - groupVersionKind:
+            group: ais.nvidia.com
+            version: v1beta1
+            kind: AIStore
+          metricNamePrefix: kube_customresource_aistore
+          labelsFromPath:
+            name: [metadata, name]
+            namespace: [metadata, namespace]
+          metrics:
+            - name: status_condition
+              help: "Conditions reported in the AIStore status"
+              each:
+                type: StateSet
+                stateSet:
+                  labelName: status
+                  path: [status, conditions]
+                  valueFrom: [status]
+                  list: ["True", "False", "Unknown"]
+                  labelsFromPath:
+                    type: [type]
+            - name: status_state
+              help: "State reported in the AIStore status"
+              each:
+                type: Info
+                info:
+                  path: [status]
+                  labelsFromPath:
+                    state: [state]
 
 {{- if hasKey .Values "affinity"}}
 {{- if and .Values.affinity.nodeLabelKey .Values.affinity.nodeLabelValue }}

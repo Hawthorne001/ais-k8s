@@ -4,6 +4,8 @@
 
 [Kube State Metrics](https://github.com/kubernetes/kube-state-metrics) (KSM) exposes Prometheus metrics about the state of Kubernetes API objects (e.g. Deployments, Pods, Nodes). This Helmfile deploys KSM as a standalone component in the `monitoring` namespace for Alloy to scrape.
 
+The [Custom Resource State](https://github.com/kubernetes/kube-state-metrics/blob/main/docs/metrics/extend/customresourcestate-metrics.md) config in `values.yaml.gotmpl` additionally exports the AIStore CR's `status.conditions` and `status.state` as `kube_customresource_aistore_*`. Environments that set a `metricAllowlist` must list those names for them to reach Prometheus.
+
 ## Usage
 
 Template manifests:
