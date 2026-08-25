@@ -5,10 +5,10 @@
 package aisauth
 
 import (
+	"github.com/NVIDIA/aistore/cmn/cos"
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	authnconfig "github.com/ais-operator/internal/resources/aisauth/config"
 	"github.com/ais-operator/internal/resources/ownerref"
-	jsoniter "github.com/json-iterator/go"
 	"k8s.io/apimachinery/pkg/types"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 )
@@ -60,14 +60,11 @@ func NewConfigMap(authn *authv1alpha1.AIStoreAuth) (*corev1ac.ConfigMapApplyConf
 		}), nil
 }
 
+// ValidateConfig reports whether AuthN accepts the configuration rendered from authn.
+func ValidateConfig(authn *authv1alpha1.AIStoreAuth) error {
+	return authnconfig.GenerateConfig(authn, configPaths).Validate()
+}
+
 func renderAuthnJSON(authn *authv1alpha1.AIStoreAuth) (string, error) {
-	conf, err := authnconfig.GenerateConfig(authn, configPaths)
-	if err != nil {
-		return "", err
-	}
-	confJSON, err := jsoniter.MarshalToString(conf)
-	if err != nil {
-		return "", err
-	}
-	return confJSON, nil
+	return cos.JSON.MarshalToString(authnconfig.GenerateConfig(authn, configPaths))
 }

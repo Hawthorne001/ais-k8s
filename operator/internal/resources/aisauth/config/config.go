@@ -6,11 +6,14 @@
 package config
 
 import (
+	"fmt"
 	"strconv"
 
+	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisauthn "github.com/NVIDIA/aistore/api/authn"
 	"github.com/NVIDIA/aistore/cmn/cos"
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Paths contains the operator-managed file locations referenced by AuthN config.
@@ -20,91 +23,113 @@ type Paths struct {
 	TLSKey         string
 }
 
-// GenerateConfig maps AIStoreAuth spec.config and spec.tls into the full AuthN runtime config.
-func GenerateConfig(authn *authv1alpha1.AIStoreAuth, paths Paths) (*aisauthn.Config, error) {
-	conf := &aisauthn.Config{
-		Log:     renderLogConfig(authn),
-		Net:     renderNetConfig(authn, paths),
-		Server:  renderServerConfig(authn, paths),
-		Timeout: renderTimeoutConfig(authn),
-	}
-	if err := conf.Validate(); err != nil {
-		return nil, err
-	}
-	return conf, nil
+// GenerateConfig maps AIStoreAuth spec.config and spec.tls into the AuthN server configuration.
+func GenerateConfig(authn *authv1alpha1.AIStoreAuth, paths Paths) *Config {
+	conf := baseConfig(authn, paths)
+	conf.applySpec(authn.Spec.Config)
+	return conf
 }
 
-func renderLogConfig(authn *authv1alpha1.AIStoreAuth) aisauthn.LogConf {
-	var logCfg aisauthn.LogConf
-	if authn.Spec.Config == nil || authn.Spec.Config.Log == nil {
-		return logCfg
+// Validate reports whether AuthN accepts the configuration, with absent fields checked as the
+// defaults AuthN resolves on load.
+func (c *Config) Validate() error {
+	raw, err := cos.JSON.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshal AuthN config: %w", err)
 	}
-	if authn.Spec.Config.Log.Level != nil {
-		logCfg.Level = strconv.FormatInt(int64(*authn.Spec.Config.Log.Level), 10)
+	var full aisauthn.Config
+	if err := cos.JSON.Unmarshal(raw, &full); err != nil {
+		return fmt.Errorf("decode AuthN config: %w", err)
 	}
-	if authn.Spec.Config.Log.FlushInterval != nil {
-		logCfg.FlushInterval = cos.Duration(authn.Spec.Config.Log.FlushInterval.Duration)
-	}
-	return logCfg
+	return full.Validate()
 }
 
-func renderNetConfig(authn *authv1alpha1.AIStoreAuth, paths Paths) aisauthn.NetConf {
-	netCfg := aisauthn.NetConf{}
-	netCfg.HTTP.Port = int(authn.ListenPort())
-	if authn.Spec.Config != nil && authn.Spec.Config.Net != nil {
-		if authn.Spec.Config.Net.ExternalURL != nil {
-			netCfg.ExternalURL = *authn.Spec.Config.Net.ExternalURL
-		}
+// baseConfig holds the operator-managed settings, which apply regardless of spec.config.
+func baseConfig(authn *authv1alpha1.AIStoreAuth, paths Paths) *Config {
+	conf := &Config{
+		Net:    &NetConf{HTTP: &HTTPConf{Port: aisapc.Ptr(int(authn.ListenPort()))}},
+		Server: &ServerConf{DB: &DatabaseConf{Filepath: aisapc.Ptr(paths.Database)}},
 	}
-
 	if authn.HasTLSEnabled() {
-		netCfg.HTTP.UseHTTPS = true
-		netCfg.HTTP.Certificate = paths.TLSCertificate
-		netCfg.HTTP.Key = paths.TLSKey
+		conf.Net.HTTP.UseHTTPS = aisapc.Ptr(true)
+		conf.Net.HTTP.Certificate = aisapc.Ptr(paths.TLSCertificate)
+		conf.Net.HTTP.Key = aisapc.Ptr(paths.TLSKey)
 	}
-	return netCfg
+	return conf
 }
 
-func renderServerConfig(authn *authv1alpha1.AIStoreAuth, paths Paths) aisauthn.ServerConf {
-	serverCfg := aisauthn.ServerConf{
-		DBConf: aisauthn.DatabaseConf{Filepath: paths.Database},
+// applySpec layers the settings from spec.config over the operator-managed ones.
+func (c *Config) applySpec(specConf *authv1alpha1.ConfigSpec) {
+	if specConf == nil {
+		return
 	}
-	if authn.Spec.Config != nil && authn.Spec.Config.Auth != nil {
-		authSpec := authn.Spec.Config.Auth
-		if authSpec.ExpirationTime != nil {
-			serverCfg.Expire = cos.Duration(authSpec.ExpirationTime.Duration)
-		}
-		if authSpec.MaxTokenAge != nil {
-			serverCfg.MaxTokenAge = cos.Duration(authSpec.MaxTokenAge.Duration)
-		}
-		if authSpec.DB != nil && authSpec.DB.Type != nil {
-			serverCfg.DBConf.DBType = *authSpec.DB.Type
-		}
-	}
-
-	if authn.Spec.Config != nil && authn.Spec.Config.Auth != nil &&
-		authn.Spec.Config.Auth.SigningKey != nil {
-		signingKey := aisauthn.SigningKeyConf{}
-		signingKeySpec := authn.Spec.Config.Auth.SigningKey
-		if signingKeySpec.Bits != nil {
-			signingKey.Bits = int(*signingKeySpec.Bits)
-		}
-		if signingKeySpec.Mode != nil {
-			signingKey.Mode = *signingKeySpec.Mode
-		}
-		if signingKey.Bits != 0 || signingKey.Mode != "" {
-			serverCfg.SigningKey = signingKey
-		}
-	}
-	return serverCfg
+	c.applyLogSpec(specConf.Log)
+	c.applyNetSpec(specConf.Net)
+	c.applyAuthSpec(specConf.Auth)
+	c.applyTimeoutSpec(specConf.Timeout)
 }
 
-func renderTimeoutConfig(authn *authv1alpha1.AIStoreAuth) aisauthn.TimeoutConf {
-	if authn.Spec.Config != nil && authn.Spec.Config.Timeout != nil &&
-		authn.Spec.Config.Timeout.DefaultTimeout != nil {
-		return aisauthn.TimeoutConf{
-			Default: cos.Duration(authn.Spec.Config.Timeout.DefaultTimeout.Duration),
-		}
+func (c *Config) applyLogSpec(logSpec *authv1alpha1.LogSpec) {
+	if logSpec == nil || (logSpec.Level == nil && logSpec.FlushInterval == nil) {
+		return
 	}
-	return aisauthn.TimeoutConf{}
+	c.Log = &LogConf{FlushInterval: durationPtr(logSpec.FlushInterval)}
+	if logSpec.Level != nil {
+		c.Log.Level = aisapc.Ptr(strconv.FormatInt(int64(*logSpec.Level), 10))
+	}
+}
+
+func (c *Config) applyNetSpec(netSpec *authv1alpha1.NetSpec) {
+	if netSpec == nil {
+		return
+	}
+	c.Net.ExternalURL = copyPtr(netSpec.ExternalURL)
+}
+
+func (c *Config) applyAuthSpec(authSpec *authv1alpha1.ServerConfSpec) {
+	if authSpec == nil {
+		return
+	}
+	c.Server.Expire = durationPtr(authSpec.ExpirationTime)
+	c.Server.MaxTokenAge = durationPtr(authSpec.MaxTokenAge)
+	if authSpec.DB != nil {
+		c.Server.DB.Type = copyPtr(authSpec.DB.Type)
+	}
+	if authSpec.SigningKey != nil {
+		c.Server.SigningKey = signingKeyConf(authSpec.SigningKey)
+	}
+}
+
+func (c *Config) applyTimeoutSpec(timeoutSpec *authv1alpha1.TimeoutSpec) {
+	if timeoutSpec == nil || timeoutSpec.DefaultTimeout == nil {
+		return
+	}
+	c.Timeout = &TimeoutConf{Default: durationPtr(timeoutSpec.DefaultTimeout)}
+}
+
+func signingKeyConf(signingKeySpec *authv1alpha1.SigningKeySpec) *SigningKeyConf {
+	if signingKeySpec.Bits == nil && signingKeySpec.Mode == nil {
+		return nil
+	}
+	signingKey := &SigningKeyConf{Mode: copyPtr(signingKeySpec.Mode)}
+	if signingKeySpec.Bits != nil {
+		signingKey.Bits = aisapc.Ptr(int(*signingKeySpec.Bits))
+	}
+	return signingKey
+}
+
+// durationPtr converts an optional spec duration into the representation AuthN config uses.
+func durationPtr(d *metav1.Duration) *cos.Duration {
+	if d == nil {
+		return nil
+	}
+	return aisapc.Ptr(cos.Duration(d.Duration))
+}
+
+// copyPtr returns a pointer to a copy of v, so the rendered config does not alias the resource.
+func copyPtr[T any](v *T) *T {
+	if v == nil {
+		return nil
+	}
+	return aisapc.Ptr(*v)
 }

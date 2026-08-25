@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
+	authnres "github.com/ais-operator/internal/resources/aisauth"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -96,6 +97,10 @@ func (v *AIStoreAuthCustomValidator) validate(ctx context.Context, authn *authv1
 				allErrs = append(allErrs, fieldErr)
 			}
 		}
+	}
+
+	if err := authnres.ValidateConfig(authn); err != nil {
+		allErrs = append(allErrs, field.Invalid(specPath.Child("config"), field.OmitValueType{}, err.Error()))
 	}
 
 	if len(allErrs) == 0 {

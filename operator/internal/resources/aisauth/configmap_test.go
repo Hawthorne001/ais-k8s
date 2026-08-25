@@ -5,6 +5,8 @@
 package aisauth_test
 
 import (
+	"time"
+
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	authnres "github.com/ais-operator/internal/resources/aisauth"
 	. "github.com/onsi/ginkgo/v2"
@@ -54,4 +56,14 @@ var _ = Describe("ConfigMap", func() {
 		Expect(cm.Data).To(HaveKey(authnres.AuthnJSONKey))
 	})
 
+	It("renders a config that AuthN would reject", func() {
+		authn.Spec.Config = &authv1alpha1.ConfigSpec{
+			Log: &authv1alpha1.LogSpec{FlushInterval: &metav1.Duration{Duration: time.Second}},
+		}
+		Expect(authnres.ValidateConfig(authn)).NotTo(Succeed())
+
+		cm, err := authnres.NewConfigMap(authn)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cm.Data).To(HaveKey(authnres.AuthnJSONKey))
+	})
 })

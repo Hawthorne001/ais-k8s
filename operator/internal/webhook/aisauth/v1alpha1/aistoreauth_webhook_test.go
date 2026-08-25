@@ -9,6 +9,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -173,6 +174,47 @@ func TestValidateSecretRefs(t *testing.T) {
 				authn.Spec.Deployment.Pod = &authv1alpha1.PodSpec{Annotations: tc.podAnnotations}
 			}
 			_, err := newValidator(tc.existingSecrets...).ValidateCreate(context.Background(), authn)
+			assertResult(t, err, tc.wantFields)
+		})
+	}
+}
+
+// TestValidateConfig covers the AuthN config constraints the CRD schema cannot express.
+func TestValidateConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *authv1alpha1.ConfigSpec
+		wantFields []string // empty means the spec is admitted
+	}{
+		{
+			name: "resource without config is admitted",
+		},
+		{
+			name: "token lifetime within the maximum token age is admitted",
+			config: &authv1alpha1.ConfigSpec{
+				Auth: &authv1alpha1.ServerConfSpec{
+					ExpirationTime: &metav1.Duration{Duration: 24 * time.Hour},
+					MaxTokenAge:    &metav1.Duration{Duration: 72 * time.Hour},
+				},
+			},
+		},
+		{
+			name: "token lifetime beyond the maximum token age is rejected",
+			config: &authv1alpha1.ConfigSpec{
+				Auth: &authv1alpha1.ServerConfSpec{
+					ExpirationTime: &metav1.Duration{Duration: 48 * time.Hour},
+					MaxTokenAge:    &metav1.Duration{Duration: 24 * time.Hour},
+				},
+			},
+			wantFields: []string{"spec.config"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			authn := newAuthN(secretRef("admin"), nil, nil)
+			authn.Spec.Config = tc.config
+			_, err := newValidator("admin").ValidateCreate(context.Background(), authn)
 			assertResult(t, err, tc.wantFields)
 		})
 	}
