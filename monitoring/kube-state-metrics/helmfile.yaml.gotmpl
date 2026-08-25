@@ -9,6 +9,9 @@ environments:
   dev:
     values:
       - ./environments/{{ .Environment.Name }}/values.yaml
+  qa:
+    values:
+      - ./environments/{{ .Environment.Name }}/values.yaml
 
 ---
 

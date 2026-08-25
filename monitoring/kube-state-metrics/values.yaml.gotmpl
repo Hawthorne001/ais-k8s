@@ -2,6 +2,36 @@ prometheus:
   monitor:
     enabled: false
 
+rbac:
+  extraRules:
+    - apiGroups: ["argoproj.io"]
+      resources: ["applications"]
+      verbs: ["list", "watch"]
+
+customResourceState:
+  enabled: true
+  config:
+    spec:
+      resources:
+        - groupVersionKind:
+            group: argoproj.io
+            version: v1alpha1
+            kind: Application
+          metricNamePrefix: kube_customresource_argocd_app
+          labelsFromPath:
+            name: [metadata, name]
+            namespace: [metadata, namespace]
+          metrics:
+            - name: status
+              help: "Health and sync status reported in the ArgoCD Application status"
+              each:
+                type: Info
+                info:
+                  path: [status]
+                  labelsFromPath:
+                    health: [health, status]
+                    sync: [sync, status]
+
 {{- if hasKey .Values "affinity"}}
 {{- if and .Values.affinity.nodeLabelKey .Values.affinity.nodeLabelValue }}
 affinity:

@@ -119,6 +119,22 @@ spec:
           annotations:
             summary: AIS Target is unavailable
             description: {{`"Target in statefulset '{{ $labels.statefulset }}' in namespace '{{ $labels.namespace }}' is unavailable."`}}
+        - alert: ArgoCDAppNotHealthy
+          expr: kube_customresource_argocd_app_status{health!="Healthy", cluster=~"{{ .Values.clusterRegex }}"} == 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: ArgoCD application not healthy
+            description: {{`"ArgoCD application '{{ $labels.name }}' in namespace '{{ $labels.namespace }}' has been in health state '{{ $labels.health }}' for 15 minutes."`}}
+        - alert: ArgoCDAppNotSynced
+          expr: kube_customresource_argocd_app_status{sync!="Synced", cluster=~"{{ .Values.clusterRegex }}"} == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: ArgoCD application not synced
+            description: {{`"ArgoCD application '{{ $labels.name }}' in namespace '{{ $labels.namespace }}' has been '{{ $labels.sync }}' for 30 minutes."`}}
         - alert: K8sHighMemoryUtilization
           expr: (node_memory_MemTotal_bytes{cluster=~"{{ .Values.clusterRegex }}"}  - node_memory_MemAvailable_bytes{cluster=~"{{ .Values.clusterRegex }}"}) / node_memory_MemTotal_bytes{cluster=~"{{ .Values.clusterRegex }}"} * 100 > 80
           for: 5m
