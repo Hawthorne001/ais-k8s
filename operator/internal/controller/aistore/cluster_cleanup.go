@@ -13,7 +13,6 @@ import (
 	"github.com/ais-operator/internal/resources/aistore/adminclient"
 	"github.com/ais-operator/internal/resources/aistore/cmn"
 	"github.com/ais-operator/internal/resources/aistore/proxy"
-	"github.com/ais-operator/internal/resources/aistore/statsd"
 	"github.com/ais-operator/internal/resources/aistore/target"
 	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,7 +24,6 @@ func (r *Reconciler) cleanup(ctx context.Context, ais *aisv1.AIStore) (updated b
 		func() (bool, error) { return r.cleanupTarget(ctx, ais) },
 		func() (bool, error) { return r.cleanupProxy(ctx, ais) },
 		func() (bool, error) { return r.cleanupAdminClient(ctx, ais) },
-		func() (bool, error) { return r.k8sClient.DeleteConfigMapIfExists(ctx, statsd.ConfigMapNSName(ais)) },
 		func() (bool, error) { return r.cleanupRBAC(ctx, ais) },
 		func() (bool, error) { return r.cleanupPVC(ctx, ais) },
 		func() (bool, error) { return r.cleanupTLS(ctx, ais) },

@@ -18,7 +18,6 @@ import (
 	"github.com/ais-operator/internal/resources/aistore/adminclient"
 	"github.com/ais-operator/internal/resources/aistore/cmn"
 	"github.com/ais-operator/internal/resources/aistore/proxy"
-	"github.com/ais-operator/internal/resources/aistore/statsd"
 	"github.com/ais-operator/internal/resources/aistore/target"
 	certres "github.com/ais-operator/internal/resources/certificates"
 	"github.com/ais-operator/internal/services"
@@ -193,11 +192,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return res, err
 	}
 
-	// Delete any deprecated statsd ConfigMap.
-	if err = r.reconcileDeprecatedStatsDCM(ctx, ais); err != nil {
-		r.recordError(ctx, ais, err, "Failed to reconcile deletion of StatsD ConfigMap")
-		return reconcile.Result{}, err
-	}
 	return reconcile.Result{}, nil
 }
 
@@ -486,24 +480,6 @@ func (r *Reconciler) reconcileResources(ctx context.Context, ais *aisv1.AIStore)
 	// FIXME: We should also move the logic from `bootstrapNew` and `handleCREvents`.
 
 	return nil
-}
-
-func (r *Reconciler) reconcileDeprecatedStatsDCM(ctx context.Context, ais *aisv1.AIStore) error {
-	cm := &corev1.ConfigMap{}
-	cmName := statsd.ConfigMapNSName(ais)
-	if err := r.k8sClient.Get(ctx, cmName, cm); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return err
-		}
-		return nil
-	}
-	if !metav1.IsControlledBy(cm, ais) {
-		return nil
-	}
-	logf.FromContext(ctx).Info("Deleting deprecated StatsD ConfigMap",
-		"namespace", cmName.Namespace, "name", cmName.Name)
-	_, err := r.k8sClient.DeleteConfigMapIfExists(ctx, cmName)
-	return err
 }
 
 func (r *Reconciler) ensurePrereqs(ctx context.Context, ais *aisv1.AIStore) (result ctrl.Result, err error) {
