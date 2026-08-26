@@ -14,6 +14,11 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 - `AIStoreAuthProfile`
   - Webhook validation rejects requests with user info in `spec.serviceURL`
+- Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth.enabled`.
+
+### Changed
+
+- `spec.authNSecretName` is no longer used to determine operator client token inclusion. This is now driven only by `spec.auth.profileRef`.
 
 ### Removed
 

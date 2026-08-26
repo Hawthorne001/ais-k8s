@@ -111,16 +111,15 @@ func (c *AIStoreClient) HasValidBaseParams(ctx context.Context, ais *aisv1.AISto
 
 	// Determine whether HTTPS should be used based on the presence of a TLS secret / TLS issuer and
 	// verify if the URL's protocol matches the expected protocol (HTTPS or HTTP)
-	httpsCheck := cos.IsHTTPS(c.params.URL) == ais.UseHTTPS()
+	if cos.IsHTTPS(c.params.URL) != ais.UseHTTPS() {
+		return false
+	}
 
-	// Check if the token and AuthN configuration are correctly aligned:
-	// - If Auth or AuthNSecretName is configured, token should be present
-	// - If neither is configured, token should be empty
-	hasAuthConfig := ais.Spec.Auth != nil || ais.Spec.AuthNSecretName != nil
-	authNCheck := (c.params.Token == "" && !hasAuthConfig) ||
-		(c.params.Token != "" && hasAuthConfig)
-
-	return httpsCheck && authNCheck
+	// Check if the client parameters are aligned with the requested auth
+	if ais.GetAuthProfileRef() != nil {
+		return c.params.Token != ""
+	}
+	return c.params.Token == ""
 }
 
 // isTokenExpired checks if the token is expired or expiring soon (within TokenExpiryBuffer)

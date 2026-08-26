@@ -249,6 +249,65 @@ func TestValidateSafeDecommission(t *testing.T) {
 	}
 }
 
+func newAuthAIS(auth *AuthSpec, conf *ConfigToUpdate) *AIStore {
+	ais := &AIStore{}
+	ais.Spec.Auth = auth
+	ais.Spec.ConfigToUpdate = conf
+	return ais
+}
+
+func TestValidateAuth(t *testing.T) {
+	var (
+		authEnabled  = &ConfigToUpdate{Auth: &AuthConfToUpdate{Enabled: aisapc.Ptr(true)}}
+		authDisabled = &ConfigToUpdate{Auth: &AuthConfToUpdate{Enabled: aisapc.Ptr(false)}}
+		profile      = &AuthSpec{ProfileRef: &AuthProfileRef{Name: "provider"}}
+	)
+	tests := []struct {
+		name string
+		auth *AuthSpec
+		conf *ConfigToUpdate
+		// wantErrMsgs are substrings the rejection must name
+		wantErrMsgs []string
+	}{
+		{name: "no auth configuration"},
+		{name: "auth section without enabled", conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{}}},
+		{name: "auth explicitly disabled", conf: authDisabled},
+		{name: "profileRef alone", auth: profile},
+		{name: "profileRef with auth disabled", auth: profile, conf: authDisabled},
+		{name: "profileRef with auth enabled", auth: profile, conf: authEnabled},
+		{
+			name:        "spec.auth without profileRef",
+			auth:        &AuthSpec{},
+			wantErrMsgs: []string{"spec.auth is empty", "spec.auth.profileRef"},
+		},
+		{
+			name:        "spec.auth without profileRef while auth enabled",
+			auth:        &AuthSpec{},
+			conf:        authEnabled,
+			wantErrMsgs: []string{"spec.auth is empty", "spec.auth.profileRef"},
+		},
+		{
+			name:        "auth enabled without spec.auth",
+			conf:        authEnabled,
+			wantErrMsgs: []string{"spec.configToUpdate.auth.enabled", "spec.auth.profileRef"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			warnings, err := newAuthAIS(tt.auth, tt.conf).validateAuth()
+			g.Expect(warnings).To(BeEmpty())
+			if len(tt.wantErrMsgs) == 0 {
+				g.Expect(err).NotTo(HaveOccurred())
+				return
+			}
+			for _, msg := range tt.wantErrMsgs {
+				g.Expect(err).To(MatchError(ContainSubstring(msg)))
+			}
+		})
+	}
+}
+
 func TestAIStoreValidateSize(t *testing.T) {
 	tests := []struct {
 		name       string // description of this test case

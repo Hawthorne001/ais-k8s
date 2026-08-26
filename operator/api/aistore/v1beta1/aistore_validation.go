@@ -28,6 +28,7 @@ func (ais *AIStore) ValidateSpec(_ context.Context) (admission.Warnings, error) 
 		ais.validateCleanupConfig,
 		ais.validateTLSCertPaths,
 		ais.validateSafeDecommission,
+		ais.validateAuth,
 	}
 
 	// Run each validation function, aggregate warnings, exit on error
@@ -134,6 +135,21 @@ func (ais *AIStore) validateSafeDecommission() (admission.Warnings, error) {
 		return admission.Warnings{fmt.Sprintf("scaleDownMode is %q but rebalance is disabled; enable configToUpdate.rebalance.enabled so target data is migrated on scale-down", ScaleDownModeSafeDecommission)}, nil
 	}
 	return nil, nil
+}
+
+// validateAuth rejects invalid spec.auth, including specs where the cluster expects authenticated API calls
+// but the operator has no configuration from which to obtain a token.
+func (ais *AIStore) validateAuth() (admission.Warnings, error) {
+	if ais.GetAuthProfileRef() != nil {
+		return nil, nil
+	}
+	if ais.Spec.Auth != nil {
+		return nil, fmt.Errorf("spec.auth is empty; set spec.auth.profileRef")
+	}
+	if !ais.Spec.ConfigToUpdate.AuthEnabled() {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("spec.configToUpdate.auth.enabled requires the operator to authenticate its API calls; set spec.auth.profileRef")
 }
 
 // validateDeprecatedFields warns on spec fields that are slated for removal.

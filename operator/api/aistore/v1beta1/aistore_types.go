@@ -1191,6 +1191,13 @@ func (ais *AIStore) MaxLogTotal() *SizeIEC {
 	return ais.Spec.ConfigToUpdate.Log.MaxTotal
 }
 
+func (ais *AIStore) GetAuthProfileRef() *AuthProfileRef {
+	if ais.Spec.Auth == nil {
+		return nil
+	}
+	return ais.Spec.Auth.ProfileRef
+}
+
 // GetRequiredAudiences extracts all audiences from the AIStore cluster's required claims if set.
 // Returns nil if not configured
 func (ais *AIStore) GetRequiredAudiences() []string {

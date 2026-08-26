@@ -312,6 +312,14 @@ func (c *ConfigToUpdate) IsRebalanceEnabledSet() bool {
 	return c.Rebalance.Enabled != nil
 }
 
+// AuthEnabled reports whether the spec explicitly enables AIS token authentication.
+func (c *ConfigToUpdate) AuthEnabled() bool {
+	if c == nil || c.Auth == nil || c.Auth.Enabled == nil {
+		return false
+	}
+	return *c.Auth.Enabled
+}
+
 // RebalanceEnabled reports the configured rebalance.enabled value, defaulting to true when unset.
 func (c *ConfigToUpdate) RebalanceEnabled() bool {
 	if c == nil || c.Rebalance == nil || c.Rebalance.Enabled == nil {

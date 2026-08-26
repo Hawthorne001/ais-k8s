@@ -184,7 +184,7 @@ func (c *AuthNClient) getAdminToken(ctx context.Context, ais *aisv1.AIStore) (*T
 	}
 	logger := logf.FromContext(ctx)
 	logger.Info("Using auth service configuration",
-		"profileRef", ais.Spec.Auth.ProfileRef,
+		"profileRef", ais.GetAuthProfileRef(),
 		"serviceURL", authConf.GetServiceURL(),
 		"tokenExchange", authConf.IsTokenExchange())
 
@@ -204,16 +204,16 @@ func (c *AuthNClient) getAdminToken(ctx context.Context, ais *aisv1.AIStore) (*T
 
 // ResolveAuthConfig resolves the auth provider from the referenced AIStoreAuthProfile
 func (c *AuthNClient) ResolveAuthConfig(ctx context.Context, ais *aisv1.AIStore) (AuthConfig, error) {
-	spec := ais.Spec.Auth
-	if spec == nil {
+	if ais.Spec.Auth == nil {
 		return nil, nil
 	}
-	if spec.ProfileRef == nil {
+	ref := ais.GetAuthProfileRef()
+	if ref == nil {
 		return nil, errors.New("no profileRef specified")
 	}
-	profile, err := c.k8sClient.GetAuthProfile(ctx, spec.ProfileRef.Name)
+	profile, err := c.k8sClient.GetAuthProfile(ctx, ref.Name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get AIStoreAuthProfile %q: %w", spec.ProfileRef.Name, err)
+		return nil, fmt.Errorf("failed to get AIStoreAuthProfile %q: %w", ref.Name, err)
 	}
 	return &AuthProfileConfig{profile: profile, k8sClient: c.k8sClient}, nil
 }
