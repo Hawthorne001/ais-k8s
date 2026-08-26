@@ -88,6 +88,9 @@ spec:
         skip_verify: false  # Set true only when using self-signed certs without a trusted CA
 ```
 
+The operator mounts the certificate at `/var/certs` and writes those paths into the AIS config itself.
+A spec that sets `server_crt`, `server_key`, or `client_ca_tls` under `configToUpdate.net.http` together with `spec.tls` is rejected.
+
 > **Note:** Our Helm charts populate the `configToUpdate.net.http` HTTPS fields (`use_https`, `skip_verify`) automatically when `spec.tls` is configured.
 
 There are three ways to supply the certificate.
