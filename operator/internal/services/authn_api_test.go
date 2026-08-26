@@ -6,24 +6,13 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/NVIDIA/aistore/api"
-	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	"github.com/ais-operator/internal/opinfo"
-	"github.com/ais-operator/internal/truststore"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -34,181 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
-
-var _ = Describe("AuthN Base Params", func() {
-	Describe("HTTP vs HTTPS", func() {
-		It("should not configure TLS for HTTP URLs", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "http://ais-authn.ais:52001",
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-
-			transport := baseParams.Client.Transport
-			Expect(transport).NotTo(BeNil())
-
-			// Type assert to get TLSClientConfig
-			if httpTransport, ok := transport.(interface{ TLSClientConfig() *interface{} }); ok {
-				tlsConfig := httpTransport.TLSClientConfig()
-				Expect(tlsConfig).To(BeNil())
-			}
-		})
-
-		It("should configure TLS for HTTPS URLs", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "https://ais-authn.ais:52001",
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-
-			transport := baseParams.Client.Transport
-			Expect(transport).NotTo(BeNil())
-
-			// Type assert to get TLSClientConfig
-			if httpTransport, ok := transport.(interface{ TLSClientConfig() *interface{} }); ok {
-				tlsConfig := httpTransport.TLSClientConfig()
-				Expect(tlsConfig).NotTo(BeNil())
-			}
-		})
-
-		It("should configure TLS for HTTPS URLs without port", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "https://ais-authn.ais",
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-
-			transport := baseParams.Client.Transport
-			Expect(transport).NotTo(BeNil())
-
-			// Type assert to get TLSClientConfig
-			if httpTransport, ok := transport.(interface{ TLSClientConfig() *interface{} }); ok {
-				tlsConfig := httpTransport.TLSClientConfig()
-				Expect(tlsConfig).NotTo(BeNil())
-			}
-		})
-
-		It("should not configure TLS for HTTP URLs without port", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "http://ais-authn.ais",
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-
-			transport := baseParams.Client.Transport
-			Expect(transport).NotTo(BeNil())
-
-			// Type assert to get TLSClientConfig
-			if httpTransport, ok := transport.(interface{ TLSClientConfig() *interface{} }); ok {
-				tlsConfig := httpTransport.TLSClientConfig()
-				Expect(tlsConfig).To(BeNil())
-			}
-		})
-	})
-
-	Describe("Custom CA Certificates", func() {
-		var tmpDir string
-		var caCertPath string
-
-		BeforeEach(func() {
-			tmpDir = GinkgoT().TempDir()
-			caCertPath = filepath.Join(tmpDir, "ca.crt")
-			caCertPEM := createTestCACertPEM("test-ca")
-			err := os.WriteFile(caCertPath, caCertPEM, 0o600)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should load CA certificate", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "https://ais-authn.ais:52001",
-				caCertPath: caCertPath,
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-		})
-
-		It("should gracefully handle missing CA files", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "https://ais-authn.ais:52001",
-				caCertPath: "/nonexistent/ca.crt",
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-		})
-
-		It("should use system CA certs when no custom CAs provided", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "https://ais-authn.ais:52001",
-				caCertPath: "",
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-		})
-
-		It("should ignore CA certs for HTTP URLs", func() {
-			conf := &mockAuthConfig{
-				serviceURL: "http://ais-authn.ais:52001",
-				caCertPath: caCertPath,
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-		})
-	})
-
-	Describe("InsecureSkipVerify", func() {
-		It("should enable certificate verification when skip verify is false", func() {
-			conf := &mockAuthConfig{
-				serviceURL:         "https://ais-authn.ais:52001",
-				insecureSkipVerify: false,
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-			Expect(baseParams.URL).To(Equal("https://ais-authn.ais:52001"))
-		})
-
-		It("should disable certificate verification when skip verify is true", func() {
-			conf := &mockAuthConfig{
-				serviceURL:         "https://ais-authn.ais:52001",
-				insecureSkipVerify: true,
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-			Expect(baseParams.URL).To(Equal("https://ais-authn.ais:52001"))
-		})
-
-		It("should ignore skip verify for HTTP", func() {
-			conf := &mockAuthConfig{
-				serviceURL:         "http://ais-authn.ais:52001",
-				insecureSkipVerify: true,
-			}
-
-			baseParams, err := newAuthBaseParams(context.Background(), conf)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baseParams).NotTo(BeNil())
-			Expect(baseParams.URL).To(Equal("http://ais-authn.ais:52001"))
-		})
-	})
-})
 
 var _ = Describe("Subject token", func() {
 	const (
@@ -247,7 +61,7 @@ var _ = Describe("Subject token", func() {
 			request = nil
 			minted = client.ObjectKey{}
 			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: operatorSA, Namespace: operatorNamespace}}
-			authN = NewAuthNClient(newFakeK8sClientWithInterceptors(&interceptor.Funcs{
+			authN = NewAuthNClient(NewFakeK8sClientWithInterceptors(&interceptor.Funcs{
 				SubResourceCreate: func(ctx context.Context, c client.Client, subResource string,
 					obj, body client.Object, opts ...client.SubResourceCreateOption,
 				) error {
@@ -275,7 +89,7 @@ var _ = Describe("Subject token", func() {
 	})
 
 	It("should fail when the operator ServiceAccount does not exist", func() {
-		authN := NewAuthNClient(newFakeK8sClient())
+		authN := NewAuthNClient(NewFakeK8sClient())
 		_, err := authN.mintSubjectToken(context.Background(), "")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to mint token"))
@@ -336,105 +150,6 @@ var _ = Describe("OAuth Password Login", func() {
 		Expect(token.ExpiresAt.IsZero()).To(BeTrue())
 	})
 })
-
-// Helper: mockAuthConfig implements AuthConfig interface for testing
-type mockAuthConfig struct {
-	serviceURL         string
-	isTokenExchange    bool
-	subjectTokenAud    string
-	tokenExchangeEP    string
-	secretName         string
-	secretNamespace    string
-	caCertPath         string
-	insecureSkipVerify bool
-	tls                tlsCache
-}
-
-func (m *mockAuthConfig) GetServiceURL() string {
-	return m.serviceURL
-}
-
-func (m *mockAuthConfig) IsTokenExchange() bool {
-	return m.isTokenExchange
-}
-
-func (m *mockAuthConfig) GetSubjectTokenAudience() string {
-	return m.subjectTokenAud
-}
-
-func (m *mockAuthConfig) GetTokenExchangeEndpoint() string {
-	if m.tokenExchangeEP == "" {
-		return DefaultTokenExchangeEndpoint
-	}
-	return m.tokenExchangeEP
-}
-
-func (*mockAuthConfig) GetOAuthLoginConf() *OAuthLoginConf {
-	return nil
-}
-
-func (*mockAuthConfig) GetUserKey() string { return authv1alpha1.DefaultAuthProfileUserKey }
-
-func (*mockAuthConfig) GetPassKey() string { return authv1alpha1.DefaultAuthProfilePassKey }
-
-func (m *mockAuthConfig) GetSecretName() string {
-	return m.secretName
-}
-
-func (m *mockAuthConfig) GetSecretNamespace() string {
-	return m.secretNamespace
-}
-
-func (m *mockAuthConfig) GetCACertPath() string {
-	return m.caCertPath
-}
-
-func (m *mockAuthConfig) GetInsecureSkipVerify() bool {
-	return m.insecureSkipVerify
-}
-
-func (m *mockAuthConfig) GetTLSConfig(ctx context.Context) (*tls.Config, error) {
-	return m.tls.get(ctx, func(context.Context) (truststore.Config, error) {
-		var caCertPaths []string
-		if m.caCertPath != "" {
-			caCertPaths = []string{m.caCertPath}
-		}
-		return truststore.Config{CACertPaths: caCertPaths}, nil
-	}, m.insecureSkipVerify)
-}
-
-// Helper: createTestCACertPEM creates a test CA certificate in PEM format
-func createTestCACertPEM(commonName string) []byte {
-	// Generate RSA key pair
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	Expect(err).NotTo(HaveOccurred())
-
-	// Create certificate template
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"Test Org"},
-			CommonName:   commonName,
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-
-	// Self-sign the certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
-	Expect(err).NotTo(HaveOccurred())
-
-	// Encode to PEM
-	certPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-
-	return certPEM
-}
 
 var _ = Describe("GetRequiredAudiences", func() {
 	It("should return nil when ConfigToUpdate is nil", func() {

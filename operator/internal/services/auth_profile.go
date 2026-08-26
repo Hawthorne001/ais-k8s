@@ -8,42 +8,60 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 
+	"github.com/NVIDIA/aistore/api"
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	aisclient "github.com/ais-operator/internal/client"
 	"github.com/ais-operator/internal/truststore"
 	"k8s.io/apimachinery/pkg/types"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// DefaultAuthCACertPath is the location for any statically mounted custom Auth CA trust
-const DefaultAuthCACertPath = "/etc/ssl/certs/auth-ca/ca.crt"
+// defaultAuthCACertPath is the location for any statically mounted custom Auth CA trust
+const defaultAuthCACertPath = "/etc/ssl/certs/auth-ca/ca.crt"
 
-// AuthProfileConfig wraps an AIStoreAuthProfile, the administrator-approved auth provider
-type AuthProfileConfig struct {
+// authProfileConfig wraps an AIStoreAuthProfile, the administrator-approved auth provider
+type authProfileConfig struct {
 	profile   *authv1alpha1.AIStoreAuthProfile
 	k8sClient *aisclient.K8sClient
 	tls       tlsCache
 }
 
-func (c *AuthProfileConfig) GetServiceURL() string { return c.profile.Spec.ServiceURL }
+func (c *authProfileConfig) GetServiceURL() string { return c.profile.Spec.ServiceURL }
 
-func (c *AuthProfileConfig) IsTokenExchange() bool { return c.profile.Spec.TokenExchange != nil }
+// Client returns API params for reaching the profile's auth service.
+func (c *authProfileConfig) Client(ctx context.Context) (*api.BaseParams, error) {
+	serviceURL := c.GetServiceURL()
+	var tlsConf *tls.Config
+	if strings.HasPrefix(serviceURL, "https://") {
+		var err error
+		tlsConf, err = c.tlsConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get TLS config for auth service: %w", err)
+		}
+	}
+	c.logNewClient(ctx, tlsConf)
+	return newAuthBaseParams(serviceURL, tlsConf), nil
+}
 
-func (c *AuthProfileConfig) GetSubjectTokenAudience() string {
+func (c *authProfileConfig) IsTokenExchange() bool { return c.profile.Spec.TokenExchange != nil }
+
+func (c *authProfileConfig) GetSubjectTokenAudience() string {
 	if c.profile.Spec.TokenExchange == nil {
 		return ""
 	}
 	return c.profile.Spec.TokenExchange.SubjectTokenAudience
 }
 
-func (c *AuthProfileConfig) GetTokenExchangeEndpoint() string {
+func (c *authProfileConfig) GetTokenExchangeEndpoint() string {
 	if endpoint := c.profile.TokenExchangeEndpoint(); endpoint != "" {
 		return endpoint
 	}
 	return DefaultTokenExchangeEndpoint
 }
 
-func (c *AuthProfileConfig) GetOAuthLoginConf() *OAuthLoginConf {
+func (c *authProfileConfig) GetOAuthLoginConf() *OAuthLoginConf {
 	if c.profile.Spec.UsernamePassword == nil || c.profile.Spec.UsernamePassword.LoginConf == nil {
 		return nil
 	}
@@ -51,40 +69,55 @@ func (c *AuthProfileConfig) GetOAuthLoginConf() *OAuthLoginConf {
 	return &OAuthLoginConf{ClientID: conf.ClientID, Endpoint: conf.Endpoint, Scope: conf.Scope}
 }
 
-func (c *AuthProfileConfig) GetSecretName() string {
+func (c *authProfileConfig) GetSecretName() string {
 	if secret := c.loginSecret(); secret != nil {
 		return secret.Name
 	}
 	return ""
 }
 
-func (c *AuthProfileConfig) GetSecretNamespace() string {
+func (c *authProfileConfig) GetSecretNamespace() string {
 	if secret := c.loginSecret(); secret != nil {
 		return secret.Namespace
 	}
 	return ""
 }
 
-func (c *AuthProfileConfig) GetUserKey() string {
+func (c *authProfileConfig) GetUserKey() string {
 	if secret := c.loginSecret(); secret != nil {
 		return secret.UserKeyOrDefault()
 	}
 	return ""
 }
 
-func (c *AuthProfileConfig) GetPassKey() string {
+func (c *authProfileConfig) GetPassKey() string {
 	if secret := c.loginSecret(); secret != nil {
 		return secret.PassKeyOrDefault()
 	}
 	return ""
 }
 
-func (c *AuthProfileConfig) GetTLSConfig(ctx context.Context) (*tls.Config, error) {
+func (c *authProfileConfig) tlsConfig(ctx context.Context) (*tls.Config, error) {
 	insecureSkipVerify := c.profile.Spec.TLS != nil && c.profile.Spec.TLS.InsecureSkipVerify
 	return c.tls.get(ctx, c.trustStoreConfig, insecureSkipVerify)
 }
 
-func (c *AuthProfileConfig) loginSecret() *authv1alpha1.AuthProfileSecret {
+func (c *authProfileConfig) logNewClient(ctx context.Context, tlsConf *tls.Config) {
+	logger := logf.FromContext(ctx).WithValues(
+		"profileRef", c.profile.GetName(),
+		"serviceURL", c.GetServiceURL(),
+		"tokenExchange", c.IsTokenExchange(),
+	)
+	msg := "Creating authentication service client"
+	if tlsConf == nil {
+		msg += ". Warning: TLS not enabled"
+	} else if tlsConf.InsecureSkipVerify {
+		msg += ". Warning: TLS certificate verification disabled"
+	}
+	logger.Info(msg)
+}
+
+func (c *authProfileConfig) loginSecret() *authv1alpha1.AuthProfileSecret {
 	if c.profile.Spec.UsernamePassword == nil {
 		return nil
 	}
@@ -93,9 +126,9 @@ func (c *AuthProfileConfig) loginSecret() *authv1alpha1.AuthProfileSecret {
 
 // trustStoreConfig resolves the profile's CA certificate, which lives in a ConfigMap rather
 // than on the operator's filesystem.
-func (c *AuthProfileConfig) trustStoreConfig(ctx context.Context) (truststore.Config, error) {
+func (c *authProfileConfig) trustStoreConfig(ctx context.Context) (truststore.Config, error) {
 	if c.profile.Spec.TLS == nil || c.profile.Spec.TLS.CAConfigMapRef == nil {
-		return truststore.Config{CACertPaths: []string{DefaultAuthCACertPath}}, nil
+		return truststore.Config{CACertPaths: []string{defaultAuthCACertPath}}, nil
 	}
 	ref := c.profile.Spec.TLS.CAConfigMapRef
 	name := types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}

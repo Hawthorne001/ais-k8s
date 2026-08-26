@@ -6,8 +6,8 @@ package adminclient
 
 import (
 	"context"
-	"crypto/tls"
 
+	"github.com/NVIDIA/aistore/api"
 	"github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	"github.com/ais-operator/internal/services"
@@ -100,4 +100,4 @@ func (*fakeAuthConfig) GetSecretNamespace() string                  { return "" 
 func (*fakeAuthConfig) GetUserKey() string                          { return "" }
 func (*fakeAuthConfig) GetPassKey() string                          { return "" }
 
-func (*fakeAuthConfig) GetTLSConfig(context.Context) (*tls.Config, error) { return nil, nil }
+func (*fakeAuthConfig) Client(context.Context) (*api.BaseParams, error) { return nil, nil }

@@ -46,7 +46,7 @@ type (
 		mu        sync.RWMutex
 		k8sClient *aisclient.K8sClient
 		tlsOpts   AISClientTLSOpts
-		authN     AuthNClientInterface
+		authN     *AuthNClient
 		clientMap map[string]AIStoreClientInterface
 	}
 )
@@ -66,7 +66,7 @@ func NewAISClientManager(k8sClient *aisclient.K8sClient, tlsOpts AISClientTLSOpt
 func (m *AISClientManager) GetClient(ctx context.Context,
 	ais *aisv1.AIStore,
 ) (client AIStoreClientInterface, err error) {
-	logger := logf.FromContext(ctx)
+	logger := logf.FromContext(ctx).WithValues("cluster", ais.NamespacedName().String())
 	m.mu.RLock()
 	client, exists := m.clientMap[ais.NamespacedName().String()]
 	m.mu.RUnlock()
@@ -109,18 +109,27 @@ func (m *AISClientManager) GetClient(ctx context.Context,
 		return nil, err
 	}
 
-	hasToken := tokenInfo != nil && tokenInfo.Token != ""
-	hasExpiration := tokenInfo != nil && !tokenInfo.ExpiresAt.IsZero()
-	if tlsConf == nil {
-		logger.Info("Creating AIS API client", "url", url, "authN", hasToken, "tokenExpires", hasExpiration)
-	} else {
-		logger.Info("Creating HTTPS AIS API client", "url", url, "authN", hasToken, "tokenExpires", hasExpiration, "tlsPath", m.getTLSPath(ais), "skipVerify", tlsConf.InsecureSkipVerify)
-	}
+	logNewClient(logger, tokenInfo, tlsConf, url)
 	client = NewAIStoreClient(ctx, url, tokenInfo, ais.GetAPIMode(), tlsConf)
 	m.mu.Lock()
 	m.clientMap[ais.NamespacedName().String()] = client
 	m.mu.Unlock()
 	return
+}
+
+func logNewClient(logger logr.Logger, tokenInfo *TokenInfo, tlsConf *tls.Config, url string) {
+	msg := "Creating AIS API client"
+	hasToken := tokenInfo != nil && tokenInfo.Token != ""
+	clientLogger := logger.WithValues("url", url, "hasToken", hasToken)
+	if hasToken {
+		clientLogger = clientLogger.WithValues("tokenExpires", !tokenInfo.ExpiresAt.IsZero())
+	}
+	if tlsConf == nil {
+		msg += ". Warning: TLS not enabled"
+	} else if tlsConf.InsecureSkipVerify {
+		msg += ". Warning: TLS certificate verification disabled"
+	}
+	clientLogger.Info(msg)
 }
 
 func (m *AISClientManager) getAISAPIEndpoint(ctx context.Context,

@@ -66,16 +66,13 @@ type TokenInfo struct {
 }
 
 type (
-	AuthNClientInterface interface {
-		getAdminToken(ctx context.Context, ais *aisv1.AIStore) (*TokenInfo, error)
-	}
-
 	AuthNClient struct {
 		k8sClient *aisclient.K8sClient
 	}
 
 	// AuthConfig interface for getting AuthN configuration
 	AuthConfig interface {
+		Client(ctx context.Context) (*api.BaseParams, error)
 		GetServiceURL() string
 		IsTokenExchange() bool
 		GetSubjectTokenAudience() string
@@ -85,7 +82,6 @@ type (
 		GetSecretNamespace() string
 		GetUserKey() string
 		GetPassKey() string
-		GetTLSConfig(ctx context.Context) (*tls.Config, error)
 	}
 
 	// OAuthLoginConf holds the parameters for an OAuth 2.0 password grant
@@ -169,7 +165,6 @@ func (c *tlsCache) get(
 		return nil, fmt.Errorf("failed to create TLS config: %w", err)
 	}
 	if insecureSkipVerify {
-		logger.Info("WARNING: TLS certificate verification disabled (insecureSkipVerify=true)")
 		tlsConfig.InsecureSkipVerify = true
 	}
 
@@ -184,16 +179,9 @@ func (c *AuthNClient) getAdminToken(ctx context.Context, ais *aisv1.AIStore) (*T
 	if err != nil || authConf == nil {
 		return nil, err
 	}
-	logger := logf.FromContext(ctx)
-	logger.Info("Using auth service configuration",
-		"profileRef", ais.GetAuthProfileRef(),
-		"serviceURL", authConf.GetServiceURL(),
-		"tokenExchange", authConf.IsTokenExchange())
-
-	baseParams, err := newAuthBaseParams(ctx, authConf)
+	baseParams, err := authConf.Client(ctx)
 	if err != nil {
-		logger.Error(err, "Failed to create auth service base params")
-		return nil, fmt.Errorf("failed to create auth service base params: %w", err)
+		return nil, fmt.Errorf("failed to create auth service client: %w", err)
 	}
 
 	// Token exchange mode
@@ -217,7 +205,7 @@ func (c *AuthNClient) ResolveAuthConfig(ctx context.Context, ais *aisv1.AIStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AIStoreAuthProfile %q: %w", ref.Name, err)
 	}
-	return &AuthProfileConfig{profile: profile, k8sClient: c.k8sClient}, nil
+	return &authProfileConfig{profile: profile, k8sClient: c.k8sClient}, nil
 }
 
 // getSecretData Get the secret data from the specified secret name and namespace
@@ -337,28 +325,16 @@ func getTokenFromAuthN(ctx context.Context, params *api.BaseParams, creds creden
 	}, nil
 }
 
-func newAuthBaseParams(ctx context.Context, conf AuthConfig) (*api.BaseParams, error) {
-	logger := logf.FromContext(ctx)
-
+// newAuthBaseParams builds the API params used for auth service requests. A nil tlsConf leaves the
+// transport without TLS.
+func newAuthBaseParams(serviceURL string, tlsConf *tls.Config) *api.BaseParams {
 	transportArgs := cmn.TransportArgs{
 		ClientTimeout:   10 * time.Second,
 		UseHTTPProxyEnv: true,
 	}
 	transport := cmn.NewTransport(transportArgs)
-
-	serviceURL := conf.GetServiceURL()
-
-	// Only use TLS for HTTPS URLs
-	if strings.HasPrefix(serviceURL, "https://") {
-		tlsConfig, err := conf.GetTLSConfig(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get TLS config for auth service: %w", err)
-		}
-
-		transport.TLSClientConfig = tlsConfig
-	} else {
-		// HTTP connection - no TLS config needed
-		logger.V(1).Info("Using HTTP (non-TLS) connection to auth service", "url", serviceURL)
+	if tlsConf != nil {
+		transport.TLSClientConfig = tlsConf
 	}
 
 	return &api.BaseParams{
@@ -368,7 +344,7 @@ func newAuthBaseParams(ctx context.Context, conf AuthConfig) (*api.BaseParams, e
 		},
 		URL: serviceURL,
 		UA:  userAgent,
-	}, nil
+	}
 }
 
 // getTLSConfigCacheTTL returns the configured cache TTL, reading from environment if set

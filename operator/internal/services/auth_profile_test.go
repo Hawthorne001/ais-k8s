@@ -2,33 +2,35 @@
  * Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
  */
 
-package services
+package services_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
+	"net/http"
+	"time"
 
+	"github.com/NVIDIA/aistore/api"
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
-	aisclient "github.com/ais-operator/internal/client"
+	"github.com/ais-operator/internal/services"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
-var _ = Describe("AuthProfileConfig", func() {
-	profileConfig := func(spec authv1alpha1.AIStoreAuthProfileSpec) *AuthProfileConfig {
-		return &AuthProfileConfig{profile: &authv1alpha1.AIStoreAuthProfile{Spec: spec}}
-	}
+const testProfileName = "auth-profile"
 
+var _ = Describe("AuthProfileConfig", func() {
 	It("should read the provider endpoint from the profile", func() {
 		config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{ServiceURL: "https://auth-provider.ais.svc:52001"})
 		Expect(config.GetServiceURL()).To(Equal("https://auth-provider.ais.svc:52001"))
@@ -39,7 +41,7 @@ var _ = Describe("AuthProfileConfig", func() {
 			TokenExchange: &authv1alpha1.AuthProfileTokenExchange{},
 		})
 		Expect(config.IsTokenExchange()).To(BeTrue())
-		Expect(config.GetTokenExchangeEndpoint()).To(Equal(DefaultTokenExchangeEndpoint))
+		Expect(config.GetTokenExchangeEndpoint()).To(Equal(services.DefaultTokenExchangeEndpoint))
 	})
 
 	It("should use the token exchange endpoint from the profile", func() {
@@ -93,7 +95,7 @@ var _ = Describe("AuthProfileConfig", func() {
 		Expect(config.GetUserKey()).To(Equal("username"))
 		Expect(config.GetPassKey()).To(Equal("password"))
 		Expect(config.GetOAuthLoginConf()).To(Equal(
-			&OAuthLoginConf{ClientID: "ais-operator", Endpoint: endpoint, Scope: &scope},
+			&services.OAuthLoginConf{ClientID: "ais-operator", Endpoint: endpoint, Scope: &scope},
 		))
 	})
 
@@ -107,51 +109,96 @@ var _ = Describe("AuthProfileConfig", func() {
 		Expect(config.GetPassKey()).To(BeEmpty())
 	})
 
-	It("should trust the CA certificate held in the referenced ConfigMap", func() {
-		caCertPEM := createTestCACertPEM("profile-ca")
-		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "auth-provider-ca", Namespace: "auth-config"},
-			Data:       map[string]string{"ca.crt": string(caCertPEM)},
+	Describe("client", func() {
+		caConfigMapRef := &authv1alpha1.AuthProfileCAConfigMapRef{
+			Namespace: "auth-config", Name: "auth-provider-ca", Key: "ca.crt",
 		}
-		config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
-			TLS: &authv1alpha1.AuthProfileTLSConfig{
-				CAConfigMapRef: &authv1alpha1.AuthProfileCAConfigMapRef{
-					Namespace: "auth-config", Name: "auth-provider-ca", Key: "ca.crt",
-				},
-			},
+
+		It("should target the profile service over TLS", func() {
+			config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
+				ServiceURL: "https://auth-provider.ais.svc:52001",
+			})
+
+			params, err := config.Client(context.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(params.URL).To(Equal("https://auth-provider.ais.svc:52001"))
+			tlsConfig := clientTLSConfig(params)
+			Expect(tlsConfig).NotTo(BeNil())
+			Expect(tlsConfig.InsecureSkipVerify).To(BeFalse())
 		})
-		config.k8sClient = newFakeK8sClient(configMap)
 
-		tlsConfig, err := config.GetTLSConfig(context.Background())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(tlsConfig.RootCAs).NotTo(BeNil())
+		It("should trust the CA certificate held in the referenced ConfigMap", func() {
+			caCertPEM := createTestCACertPEM("profile-ca")
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "auth-provider-ca", Namespace: "auth-config"},
+				Data:       map[string]string{"ca.crt": string(caCertPEM)},
+			}
+			config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
+				ServiceURL: "https://auth-provider.ais.svc:52001",
+				TLS:        &authv1alpha1.AuthProfileTLSConfig{CAConfigMapRef: caConfigMapRef},
+			}, configMap)
 
-		block, _ := pem.Decode(caCertPEM)
-		Expect(block).NotTo(BeNil())
-		caCert, err := x509.ParseCertificate(block.Bytes)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = caCert.Verify(x509.VerifyOptions{
-			Roots:     tlsConfig.RootCAs,
-			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+			params, err := config.Client(context.Background())
+			Expect(err).NotTo(HaveOccurred())
+			rootCAs := clientTLSConfig(params).RootCAs
+			Expect(rootCAs).NotTo(BeNil())
+
+			block, _ := pem.Decode(caCertPEM)
+			Expect(block).NotTo(BeNil())
+			caCert, err := x509.ParseCertificate(block.Bytes)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = caCert.Verify(x509.VerifyOptions{
+				Roots:     rootCAs,
+				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+			})
+			Expect(err).NotTo(HaveOccurred())
 		})
-		Expect(err).NotTo(HaveOccurred())
-	})
 
-	It("should fail when the referenced ConfigMap has no CA key", func() {
-		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "auth-provider-ca", Namespace: "auth-config"},
-		}
-		config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
-			TLS: &authv1alpha1.AuthProfileTLSConfig{
-				CAConfigMapRef: &authv1alpha1.AuthProfileCAConfigMapRef{
-					Namespace: "auth-config", Name: "auth-provider-ca", Key: "ca.crt",
-				},
-			},
+		It("should skip certificate verification when the profile requests it", func() {
+			config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
+				ServiceURL: "https://auth-provider.ais.svc:52001",
+				TLS:        &authv1alpha1.AuthProfileTLSConfig{InsecureSkipVerify: true},
+			})
+
+			params, err := config.Client(context.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(clientTLSConfig(params).InsecureSkipVerify).To(BeTrue())
 		})
-		config.k8sClient = newFakeK8sClient(configMap)
 
-		_, err := config.GetTLSConfig(context.Background())
-		Expect(err).To(MatchError(ContainSubstring(`has no key "ca.crt"`)))
+		It("should leave TLS unconfigured for an HTTP service URL", func() {
+			config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
+				ServiceURL: "http://auth-provider.ais.svc:52001",
+				TLS:        &authv1alpha1.AuthProfileTLSConfig{InsecureSkipVerify: true},
+			})
+
+			params, err := config.Client(context.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(params.URL).To(Equal("http://auth-provider.ais.svc:52001"))
+			Expect(clientTLSConfig(params)).To(BeNil())
+		})
+
+		It("should fail when the referenced ConfigMap has no CA key", func() {
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "auth-provider-ca", Namespace: "auth-config"},
+			}
+			config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
+				ServiceURL: "https://auth-provider.ais.svc:52001",
+				TLS:        &authv1alpha1.AuthProfileTLSConfig{CAConfigMapRef: caConfigMapRef},
+			}, configMap)
+
+			_, err := config.Client(context.Background())
+			Expect(err).To(MatchError(ContainSubstring(`has no key "ca.crt"`)))
+		})
+
+		It("should fail when the referenced ConfigMap is missing", func() {
+			config := profileConfig(authv1alpha1.AIStoreAuthProfileSpec{
+				ServiceURL: "https://auth-provider.ais.svc:52001",
+				TLS:        &authv1alpha1.AuthProfileTLSConfig{CAConfigMapRef: caConfigMapRef},
+			})
+
+			_, err := config.Client(context.Background())
+			Expect(err).To(MatchError(ContainSubstring("failed to get TLS config for auth service")))
+		})
 	})
 })
 
@@ -164,38 +211,29 @@ var _ = Describe("ResolveAuthConfig", func() {
 				TokenExchange: &authv1alpha1.AuthProfileTokenExchange{Endpoint: "/exchange"},
 			},
 		}
-		client := NewAuthNClient(newFakeK8sClient(profile))
-		ais := &aisv1.AIStore{
-			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
-			Spec: aisv1.AIStoreSpec{
-				Auth: &aisv1.AuthSpec{
-					ProfileRef: &aisv1.AuthProfileRef{Name: "prod-authn"},
-				},
-			},
-		}
+		authN := services.NewAuthNClient(services.NewFakeK8sClient(profile))
 
-		config, err := client.ResolveAuthConfig(context.Background(), ais)
+		config, err := authN.ResolveAuthConfig(context.Background(), aisWithProfileRef("prod-authn"))
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config).To(BeAssignableToTypeOf(&AuthProfileConfig{}))
 		Expect(config.GetServiceURL()).To(Equal("https://auth-provider.ais.svc:52001"))
 		Expect(config.IsTokenExchange()).To(BeTrue())
 		Expect(config.GetTokenExchangeEndpoint()).To(Equal("/exchange"))
 	})
 
 	It("should safely return empty auth config if given a nil auth spec", func() {
-		client := NewAuthNClient(newFakeK8sClient())
+		authN := services.NewAuthNClient(services.NewFakeK8sClient())
 		ais := &aisv1.AIStore{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
 			Spec:       aisv1.AIStoreSpec{},
 		}
 
-		config, err := client.ResolveAuthConfig(context.Background(), ais)
+		config, err := authN.ResolveAuthConfig(context.Background(), ais)
 		Expect(err).To(BeNil())
 		Expect(config).To(BeNil())
 	})
 
 	It("should surface an error when no profile is referenced", func() {
-		client := NewAuthNClient(newFakeK8sClient())
+		authN := services.NewAuthNClient(services.NewFakeK8sClient())
 		ais := &aisv1.AIStore{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
 			Spec: aisv1.AIStoreSpec{
@@ -203,41 +241,70 @@ var _ = Describe("ResolveAuthConfig", func() {
 			},
 		}
 
-		config, err := client.ResolveAuthConfig(context.Background(), ais)
+		config, err := authN.ResolveAuthConfig(context.Background(), ais)
 		Expect(err).To(MatchError(ContainSubstring(`no profileRef specified`)))
 		Expect(config).To(BeNil())
 	})
 
 	It("should surface an error when the referenced profile does not exist", func() {
-		client := NewAuthNClient(newFakeK8sClient())
-		ais := &aisv1.AIStore{
-			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
-			Spec: aisv1.AIStoreSpec{
-				Auth: &aisv1.AuthSpec{
-					ProfileRef: &aisv1.AuthProfileRef{Name: "missing-profile"},
-				},
-			},
-		}
+		authN := services.NewAuthNClient(services.NewFakeK8sClient())
 
-		_, err := client.ResolveAuthConfig(context.Background(), ais)
+		_, err := authN.ResolveAuthConfig(context.Background(), aisWithProfileRef("missing-profile"))
 		Expect(err).To(MatchError(ContainSubstring(`failed to get AIStoreAuthProfile "missing-profile"`)))
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 })
 
-func newFakeK8sClient(objs ...client.Object) *aisclient.K8sClient {
+// profileConfig resolves a config from the given profile spec, with objs available to the operator's client.
+func profileConfig(spec authv1alpha1.AIStoreAuthProfileSpec, objs ...client.Object) services.AuthConfig {
 	GinkgoHelper()
-	return newFakeK8sClientWithInterceptors(nil, objs...)
+	profile := &authv1alpha1.AIStoreAuthProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: testProfileName},
+		Spec:       spec,
+	}
+	authN := services.NewAuthNClient(services.NewFakeK8sClient(append(objs, profile)...))
+	config, err := authN.ResolveAuthConfig(context.Background(), aisWithProfileRef(testProfileName))
+	Expect(err).NotTo(HaveOccurred())
+	return config
 }
 
-func newFakeK8sClientWithInterceptors(funcs *interceptor.Funcs, objs ...client.Object) *aisclient.K8sClient {
-	GinkgoHelper()
-	scheme := runtime.NewScheme()
-	Expect(clientgoscheme.AddToScheme(scheme)).To(Succeed())
-	Expect(authv1alpha1.AddToScheme(scheme)).To(Succeed())
-	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...)
-	if funcs != nil {
-		builder = builder.WithInterceptorFuncs(*funcs)
+func aisWithProfileRef(name string) *aisv1.AIStore {
+	return &aisv1.AIStore{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "tenant"},
+		Spec: aisv1.AIStoreSpec{
+			Auth: &aisv1.AuthSpec{ProfileRef: &aisv1.AuthProfileRef{Name: name}},
+		},
 	}
-	return aisclient.NewClient(builder.Build(), scheme)
+}
+
+func clientTLSConfig(params *api.BaseParams) *tls.Config {
+	GinkgoHelper()
+	transport, ok := params.Client.Transport.(*http.Transport)
+	Expect(ok).To(BeTrue())
+	return transport.TLSClientConfig
+}
+
+// createTestCACertPEM creates a self-signed CA certificate in PEM format
+func createTestCACertPEM(commonName string) []byte {
+	GinkgoHelper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	Expect(err).NotTo(HaveOccurred())
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+			CommonName:   commonName,
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	Expect(err).NotTo(HaveOccurred())
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 }
