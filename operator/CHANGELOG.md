@@ -10,6 +10,11 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ## v4.0.0
 
+### Added 
+
+- `AIStoreAuthProfile`
+  - Webhook validation rejects requests with user info in `spec.serviceURL`
+
 ### Removed
 
 - `spec.auth` individual options. See [compatibility doc](../docs/COMPATIBILITY.md#migrating-aistore-custom-resources-with-auth) for migration instructions to use `spec.auth.profileRef`.

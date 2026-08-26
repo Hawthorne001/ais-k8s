@@ -53,6 +53,9 @@ func (p *AIStoreAuthProfile) validateServiceURL() field.ErrorList {
 	if u.RawQuery != "" || u.Fragment != "" {
 		return field.ErrorList{field.Invalid(path, p.Spec.ServiceURL, "must not include query or fragment")}
 	}
+	if u.User != nil {
+		return field.ErrorList{field.Invalid(path, p.Spec.ServiceURL, "must not include user info")}
+	}
 	switch u.Scheme {
 	case "https", "http":
 		return nil

@@ -44,6 +44,22 @@ func TestAIStoreAuthProfileValidateSpec(t *testing.T) {
 			wantErr: []string{"must not include a path"},
 		},
 		{
+			name: "rejects serviceURL with user info",
+			spec: AIStoreAuthProfileSpec{ //nolint:gosec // G101: fake userinfo the validation must reject
+				ServiceURL:    "https://admin:secret@auth-provider.ais.svc:52001",
+				TokenExchange: &AuthProfileTokenExchange{Endpoint: "/token"},
+			},
+			wantErr: []string{"spec.serviceURL", "must not include user info"},
+		},
+		{
+			name: "rejects serviceURL with username only",
+			spec: AIStoreAuthProfileSpec{
+				ServiceURL:    "https://admin@auth-provider.ais.svc:52001",
+				TokenExchange: &AuthProfileTokenExchange{Endpoint: "/token"},
+			},
+			wantErr: []string{"spec.serviceURL", "must not include user info"},
+		},
+		{
 			name: "accepts OAuth password-grant token endpoint",
 			spec: AIStoreAuthProfileSpec{
 				ServiceURL: "https://keycloak.example",
