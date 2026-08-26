@@ -88,6 +88,70 @@ func TestTokenExpirationBackwardCompatibility(t *testing.T) {
 	}
 }
 
+func TestRefreshMarginClampedToTokenValidity(t *testing.T) {
+	tests := []struct {
+		name              string
+		obtainedAgo       time.Duration
+		expiresIn         time.Duration
+		unknownObtainedAt bool
+		wantExpired       bool
+	}{
+		{
+			name:        "freshly obtained token with validity equal to the buffer",
+			obtainedAgo: 0,
+			expiresIn:   TokenExpiryBuffer,
+			wantExpired: false,
+		},
+		{
+			name:        "same token past half its validity",
+			obtainedAgo: 3 * time.Minute,
+			expiresIn:   2 * time.Minute,
+			wantExpired: true,
+		},
+		{
+			name:        "freshly obtained token with validity below the buffer",
+			obtainedAgo: 0,
+			expiresIn:   time.Minute,
+			wantExpired: false,
+		},
+		{
+			name:        "long-lived token retains the full buffer",
+			obtainedAgo: 56 * time.Minute,
+			expiresIn:   4 * time.Minute,
+			wantExpired: true,
+		},
+		{
+			name:              "no recorded obtain time retains the full buffer",
+			expiresIn:         4 * time.Minute,
+			unknownObtainedAt: true,
+			wantExpired:       true,
+		},
+		{
+			name:              "no recorded obtain time outside the full buffer",
+			expiresIn:         10 * time.Minute,
+			unknownObtainedAt: true,
+			wantExpired:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+			client := &AIStoreClient{
+				tokenExpireAt: now.Add(tt.expiresIn),
+			}
+			if !tt.unknownObtainedAt {
+				client.tokenObtainedAt = now.Add(-tt.obtainedAgo)
+			}
+
+			if got := client.isTokenExpired(); got != tt.wantExpired {
+				t.Errorf("isTokenExpired() = %v, want %v (obtained %s ago, expires in %s)",
+					got, tt.wantExpired, tt.obtainedAgo, tt.expiresIn)
+			}
+		})
+	}
+}
+
 func TestTokenInfoStructure(t *testing.T) {
 	// Test that TokenInfo correctly handles both cases
 	t.Run("With expiration", func(t *testing.T) {

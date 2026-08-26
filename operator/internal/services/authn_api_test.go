@@ -284,16 +284,18 @@ var _ = Describe("Subject token", func() {
 
 var _ = Describe("OAuth Password Login", func() {
 	var (
-		server      *httptest.Server
-		requestPath string
+		server       *httptest.Server
+		requestPath  string
+		responseBody string
 	)
 
 	BeforeEach(func() {
 		requestPath = ""
+		responseBody = `{"access_token":"test-token","token_type":"Bearer","expires_in":300}`
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestPath = r.URL.Path
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"test-token","token_type":"Bearer","expires_in":300}`))
+			_, _ = w.Write([]byte(responseBody))
 		}))
 	})
 
@@ -318,6 +320,20 @@ var _ = Describe("OAuth Password Login", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(token.Token).To(Equal("test-token"))
 		Expect(requestPath).To(Equal("/"))
+	})
+
+	It("should set the expiration from expires_in", func() {
+		token, err := login(&OAuthLoginConf{ClientID: "AIStore"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(token.ObtainedAt).To(BeTemporally("~", time.Now(), time.Minute))
+		Expect(token.ExpiresAt.Sub(token.ObtainedAt)).To(Equal(300 * time.Second))
+	})
+
+	It("should leave the expiration unset when expires_in is omitted", func() {
+		responseBody = `{"access_token":"test-token","token_type":"Bearer"}`
+		token, err := login(&OAuthLoginConf{ClientID: "AIStore"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(token.ExpiresAt.IsZero()).To(BeTrue())
 	})
 })
 

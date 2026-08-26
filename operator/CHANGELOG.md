@@ -21,6 +21,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 ### Changed
 
 - `spec.authNSecretName` is no longer used to determine operator client token inclusion. This is now driven only by `spec.auth.profileRef`.
+- OAuth password-grant tokens are no longer treated as expired when the provider omits `expires_in`.
+- Tokens with a lifetime at or below the default 5 minute refresh margin are no longer refreshed on every reconcile.
 
 ### Removed
 

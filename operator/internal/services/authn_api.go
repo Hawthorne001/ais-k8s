@@ -59,8 +59,10 @@ var (
 
 // TokenInfo contains token and optional expiration information
 type TokenInfo struct {
-	Token     string
-	ExpiresAt time.Time
+	Token string
+	// ObtainedAt is when the operator got the token, not the token's own iat claim
+	ObtainedAt time.Time
+	ExpiresAt  time.Time
 }
 
 type (
@@ -304,10 +306,16 @@ func getTokenFromOAuth(ctx context.Context, params *api.BaseParams, creds creden
 		return nil, fmt.Errorf("unexpected token_type: %s", tokenResp.TokenType)
 	}
 	logf.FromContext(ctx).Info(fmt.Sprintf("Successfully fetched token for user %q from auth service", creds.user))
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	// expires_in is optional per RFC 6749; leave the zero value so the token is not treated as expired
+	obtainedAt := time.Now()
+	var expiresAt time.Time
+	if tokenResp.ExpiresIn > 0 {
+		expiresAt = obtainedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	}
 	return &TokenInfo{
-		Token:     tokenResp.AccessToken,
-		ExpiresAt: expiresAt,
+		Token:      tokenResp.AccessToken,
+		ObtainedAt: obtainedAt,
+		ExpiresAt:  expiresAt,
 	}, nil
 }
 
@@ -323,8 +331,9 @@ func getTokenFromAuthN(ctx context.Context, params *api.BaseParams, creds creden
 	logger.Info(fmt.Sprintf("Successfully fetched token for user %q from AuthN", creds.user))
 	// Username/password mode doesn't provide expiration info
 	return &TokenInfo{
-		Token:     tokenMsg.Token,
-		ExpiresAt: time.Time{}, // Zero value = no expiration
+		Token:      tokenMsg.Token,
+		ObtainedAt: time.Now(),
+		ExpiresAt:  time.Time{}, // Zero value = no expiration
 	}, nil
 }
 
@@ -501,17 +510,19 @@ func exchangeTokenWithAuthSvc(ctx context.Context, params *api.BaseParams, sourc
 	}
 
 	// Calculate expiration time if provided
+	obtainedAt := time.Now()
 	var expiresAt time.Time
 	if result.ExpiresIn > 0 {
-		expiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+		expiresAt = obtainedAt.Add(time.Duration(result.ExpiresIn) * time.Second)
 		logger.Info("Token exchange successful", "expires_in", result.ExpiresIn)
 	} else {
 		logger.Info("Token exchange successful", "no_expiration", true)
 	}
 
 	return &TokenInfo{
-		Token:     token,
-		ExpiresAt: expiresAt,
+		Token:      token,
+		ObtainedAt: obtainedAt,
+		ExpiresAt:  expiresAt,
 	}, nil
 }
 

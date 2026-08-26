@@ -23,8 +23,7 @@ import (
 
 const (
 	userAgent = "ais-operator"
-	// TokenExpiryBuffer is the safety margin before token expiration to trigger refresh
-	// If a token expires in less than this duration, it will be considered invalid
+	// TokenExpiryBuffer is used to calculate the safe window to trigger refresh before token expiration
 	TokenExpiryBuffer = 5 * time.Minute
 )
 
@@ -42,12 +41,13 @@ type (
 	}
 
 	AIStoreClient struct {
-		ctx           context.Context
-		params        *api.BaseParams
-		mode          string
-		tlsCfg        *tls.Config
-		tokenExpireAt time.Time
-		authFailed    bool
+		ctx             context.Context
+		params          *api.BaseParams
+		mode            string
+		tlsCfg          *tls.Config
+		tokenObtainedAt time.Time
+		tokenExpireAt   time.Time
+		authFailed      bool
 	}
 )
 
@@ -122,24 +122,34 @@ func (c *AIStoreClient) HasValidBaseParams(ctx context.Context, ais *aisv1.AISto
 	return c.params.Token == ""
 }
 
-// isTokenExpired checks if the token is expired or expiring soon (within TokenExpiryBuffer)
+// isTokenExpired checks if the token is expired or expiring soon (within the refresh margin)
 func (c *AIStoreClient) isTokenExpired() bool {
 	// Zero time means no expiration tracking
 	if c.tokenExpireAt.IsZero() {
 		return false
 	}
-	// Token is considered expired if it expires within TokenExpiryBuffer (5 minutes)
-	return time.Now().Add(TokenExpiryBuffer).After(c.tokenExpireAt)
+	return time.Now().Add(c.refreshMargin()).After(c.tokenExpireAt)
+}
+
+// refreshMargin returns how long before expiration a token is treated as expired: half the validity
+// the token had when obtained, capped at TokenExpiryBuffer, or the full cap when that is unknown.
+func (c *AIStoreClient) refreshMargin() time.Duration {
+	if c.tokenObtainedAt.IsZero() {
+		return TokenExpiryBuffer
+	}
+	return min(c.tokenExpireAt.Sub(c.tokenObtainedAt)/2, TokenExpiryBuffer)
 }
 
 // refreshToken updates the token and expiration time in-place
 func (c *AIStoreClient) refreshToken(tokenInfo *TokenInfo) {
 	if tokenInfo == nil {
 		c.params.Token = ""
+		c.tokenObtainedAt = time.Time{}
 		c.tokenExpireAt = time.Time{}
 		return
 	}
 	c.params.Token = tokenInfo.Token
+	c.tokenObtainedAt = tokenInfo.ObtainedAt
 	c.tokenExpireAt = tokenInfo.ExpiresAt
 }
 
@@ -193,18 +203,20 @@ func (c *AIStoreClient) StartMaintenance(actValue *apc.ActValRmNode) (string, er
 
 func NewAIStoreClient(ctx context.Context, url string, tokenInfo *TokenInfo, mode string, tlsCfg *tls.Config) *AIStoreClient {
 	var token string
-	var tokenExpireAt time.Time
+	var tokenObtainedAt, tokenExpireAt time.Time
 	if tokenInfo != nil {
 		token = tokenInfo.Token
+		tokenObtainedAt = tokenInfo.ObtainedAt
 		tokenExpireAt = tokenInfo.ExpiresAt
 	}
 
 	return &AIStoreClient{
-		ctx:           ctx,
-		params:        buildBaseParams(url, token, tlsCfg),
-		mode:          mode,
-		tlsCfg:        tlsCfg,
-		tokenExpireAt: tokenExpireAt,
+		ctx:             ctx,
+		params:          buildBaseParams(url, token, tlsCfg),
+		mode:            mode,
+		tlsCfg:          tlsCfg,
+		tokenObtainedAt: tokenObtainedAt,
+		tokenExpireAt:   tokenExpireAt,
 	}
 }
 
