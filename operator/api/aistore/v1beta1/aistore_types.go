@@ -515,11 +515,6 @@ type DaemonSpec struct {
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
-	// Deprecated: Capabilities defines the security context for the primary AIS container.
-	// Use AISContainerSecurityContext instead.
-	// +optional
-	Capabilities *corev1.SecurityContext `json:"capabilities,omitempty"`
-
 	// AISContainerSecurityContext defines the security context for the primary AIS container.
 	// Values defined here can override the overall SecurityContext
 	AISContainerSecurityContext *corev1.SecurityContext `json:"aisContainerSecurityContext,omitempty"`

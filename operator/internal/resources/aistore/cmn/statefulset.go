@@ -73,13 +73,10 @@ func GetPodSecurityContext(s *aisv1.DaemonSpec) *corev1.PodSecurityContext {
 }
 
 // GetAISSecurityContext resolves the primary AIS container SecurityContext for a DaemonSpec.
-// Precedence: AISContainerSecurityContext > deprecated Capabilities > DefaultAISContainerSecurityContext.
+// Precedence: AISContainerSecurityContext > DefaultAISContainerSecurityContext.
 func GetAISSecurityContext(s *aisv1.DaemonSpec) *corev1.SecurityContext {
 	if s.AISContainerSecurityContext != nil {
 		return s.AISContainerSecurityContext
-	}
-	if s.Capabilities != nil { //nolint:staticcheck // backwards compatibility for deprecated Capabilities field
-		return s.Capabilities //nolint:staticcheck // deprecated Capabilities field
 	}
 	return DefaultAISContainerSecurityContext()
 }

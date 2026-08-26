@@ -968,11 +968,6 @@ func (in *DaemonSpec) DeepCopyInto(out *DaemonSpec) {
 		}
 	}
 	in.Resources.DeepCopyInto(&out.Resources)
-	if in.Capabilities != nil {
-		in, out := &in.Capabilities, &out.Capabilities
-		*out = new(v1.SecurityContext)
-		(*in).DeepCopyInto(*out)
-	}
 	if in.AISContainerSecurityContext != nil {
 		in, out := &in.AISContainerSecurityContext, &out.AISContainerSecurityContext
 		*out = new(v1.SecurityContext)

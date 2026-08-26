@@ -35,6 +35,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
   - Note this defaults to false unlike the removed default Helm value for `OPERATOR_SKIP_VERIFY_CRT`. 
 - Cleanup of the StatsD ConfigMap left behind by deployments predating v3.0.0.
   - Delete any remaining `<cluster>-statsd` ConfigMap manually.
+- `spec.proxySpec.capabilities` and `spec.targetSpec.capabilities`, deprecated in v3.0.0.
+  - Use `aisContainerSecurityContext` on the same specs.
 
 ---
 

@@ -187,7 +187,6 @@ func allowDaemonSpecUpdates(prev, spec *aisv1.DaemonSpec) {
 	prev.Env = spec.Env
 	prev.Resources = spec.Resources
 	prev.SecurityContext = spec.SecurityContext
-	prev.Capabilities = spec.Capabilities //nolint:staticcheck // deprecated Capabilities field
 	prev.AISContainerSecurityContext = spec.AISContainerSecurityContext
 	prev.AutoScaleConf = spec.AutoScaleConf
 	prev.PVCRetentionPolicy = spec.PVCRetentionPolicy

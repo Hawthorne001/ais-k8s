@@ -163,8 +163,6 @@ func (ais *AIStore) validateDeprecatedFields() (admission.Warnings, error) {
 		{ais.Spec.HostpathPrefix != nil, "spec.hostpathPrefix", "spec.stateStorage.hostPath.prefix"},
 		{ais.Spec.StateStorageClass != nil, "spec.stateStorageClass", "spec.stateStorage.pvc.storageClass"},
 		{ais.Spec.EnableExternalLB, "spec.enableExternalLB", "spec.proxySpec.externalAccess and/or spec.targetSpec.externalAccess"},
-		{ais.Spec.ProxySpec.Capabilities != nil, "spec.proxySpec.capabilities", "spec.proxySpec.aisContainerSecurityContext"},
-		{ais.Spec.TargetSpec.Capabilities != nil, "spec.targetSpec.capabilities", "spec.targetSpec.aisContainerSecurityContext"},
 	}
 
 	var warnings admission.Warnings
