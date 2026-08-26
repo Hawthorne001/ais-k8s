@@ -150,6 +150,69 @@ func TestValidateShutdownWithEmptyDir(t *testing.T) {
 	}
 }
 
+func TestValidateTLSCertPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		tls     bool
+		http    *HTTPConfToUpdate
+		wantErr bool
+	}{
+		{
+			name: "tls without configToUpdate is valid",
+			tls:  true,
+		},
+		{
+			name: "tls with non-path http fields is valid",
+			tls:  true,
+			http: &HTTPConfToUpdate{UseHTTPS: aisapc.Ptr(true), SkipVerifyCrt: aisapc.Ptr(false)},
+		},
+		{
+			name: "cert paths without tls are valid",
+			http: &HTTPConfToUpdate{
+				Certificate: aisapc.Ptr("/etc/ais/tls.crt"),
+				CertKey:     aisapc.Ptr("/etc/ais/tls.key"),
+				ClientCA:    aisapc.Ptr("/etc/ais/ca.crt"),
+			},
+		},
+		{
+			name:    "tls with server_crt errors",
+			tls:     true,
+			http:    &HTTPConfToUpdate{Certificate: aisapc.Ptr("/etc/ais/tls.crt")},
+			wantErr: true,
+		},
+		{
+			name:    "tls with server_key errors",
+			tls:     true,
+			http:    &HTTPConfToUpdate{CertKey: aisapc.Ptr("/etc/ais/tls.key")},
+			wantErr: true,
+		},
+		{
+			name:    "tls with client_ca_tls errors",
+			tls:     true,
+			http:    &HTTPConfToUpdate{ClientCA: aisapc.Ptr("/etc/ais/ca.crt")},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			ais := &AIStore{}
+			if tt.tls {
+				ais.Spec.TLS = &TLSSpec{SecretName: aisapc.Ptr("tls-certs")}
+			}
+			if tt.http != nil {
+				ais.Spec.ConfigToUpdate = &ConfigToUpdate{Net: &NetConfToUpdate{HTTP: tt.http}}
+			}
+			_, err := ais.validateTLSCertPaths()
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+	}
+}
+
 func newSafeDecommAIS(mode ScaleDownMode, rebalance *bool) *AIStore {
 	ais := &AIStore{}
 	ais.Spec.TargetSpec.ScaleDownMode = mode
