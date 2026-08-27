@@ -148,7 +148,7 @@ func NewInitContainerEnv(ais *aisv1.AIStore) (initEnv []corev1.EnvVar) {
 }
 
 func NewAISContainerEnv(ais *aisv1.AIStore) []corev1.EnvVar {
-	baseEnv := cmn.CommonEnv()
+	baseEnv := cmn.CommonEnv(ais)
 	if ais.Spec.AuthNSecretName != nil {
 		baseEnv = append(baseEnv, cmn.EnvFromSecret(aisenv.AisAuthSecretKey, *ais.Spec.AuthNSecretName, cmn.EnvAuthNSecretKey))
 	}

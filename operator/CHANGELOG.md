@@ -12,6 +12,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ### Added 
 
+- `AIS_CLUSTER_NAME` now provided as an environment variable to all AIS pods, set to the AIStore resource name. 
 - `AIStoreAuthProfile`
   - Webhook validation rejects requests with user info in `spec.serviceURL`
 - Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth.enabled`.

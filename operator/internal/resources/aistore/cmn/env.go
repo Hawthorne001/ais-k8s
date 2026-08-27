@@ -19,6 +19,7 @@ const (
 	EnvNS          = "K8S_NS"     // K8s Namespace where `pod` is deployed
 	EnvServiceName = "MY_SERVICE" // K8s service associated with Pod
 
+	EnvCluster              = "AIS_CLUSTER_NAME" // Name of the AIStore resource
 	EnvPublicHostname       = "AIS_PUBLIC_HOSTNAME"
 	EnvPublicDNSMode        = "AIS_PUBLIC_DNS_MODE"    // Determines what DNS name to use for the public network
 	EnvClusterDomain        = "AIS_K8S_CLUSTER_DOMAIN" // K8s cluster DNS domain
@@ -36,11 +37,12 @@ const (
 )
 
 // CommonEnv provides environment variables for all containers (target/proxy, init/aisnode)
-func CommonEnv() []corev1.EnvVar {
+func CommonEnv(ais *aisv1.AIStore) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		EnvFromFieldPath(EnvNodeName, "spec.nodeName"),
 		EnvFromFieldPath(EnvPodName, "metadata.name"),
 		EnvFromFieldPath(EnvNS, "metadata.namespace"),
+		EnvFromValue(EnvCluster, ais.Name),
 	}
 }
 
@@ -54,5 +56,5 @@ func CommonInitEnv(ais *aisv1.AIStore, externalAccessEnabled bool) []corev1.EnvV
 	if ais.Spec.PublicNetDNSMode != nil {
 		initEnv = append(initEnv, EnvFromValue(EnvPublicDNSMode, string(*ais.Spec.PublicNetDNSMode)))
 	}
-	return append(initEnv, CommonEnv()...)
+	return append(initEnv, CommonEnv(ais)...)
 }
