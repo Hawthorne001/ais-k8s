@@ -69,10 +69,20 @@ func NewDeployment(ctx context.Context, authn *authv1alpha1.AIStoreAuth) (*appsv
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(selectorLabels(authn))).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithLabels(resourceLabels(authn)).
-				WithAnnotations(map[string]string{
-					ConfigChecksumAnnotation: hex.EncodeToString(checksum[:]),
-				}).
+				WithAnnotations(podAnnotations(authn, checksum)).
 				WithSpec(podSpec))), nil
+}
+
+// podAnnotations merges user-supplied pod annotations with the operator's reserved annotations.
+func podAnnotations(authn *authv1alpha1.AIStoreAuth, configChecksum [sha256.Size]byte) map[string]string {
+	annotations := map[string]string{}
+	if pod := authn.Spec.Deployment.Pod; pod != nil {
+		for k, v := range pod.Annotations {
+			annotations[k] = v
+		}
+	}
+	annotations[ConfigChecksumAnnotation] = hex.EncodeToString(configChecksum[:])
+	return annotations
 }
 
 func newContainer(

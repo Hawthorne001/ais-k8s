@@ -150,6 +150,30 @@ var _ = Describe("Deployment", func() {
 		Expect(podSpec.ImagePullSecrets).To(BeEmpty())
 	})
 
+	It("merges spec.deployment.pod.annotations onto the pod template", func() {
+		authn.Spec.Deployment.Pod = &authv1alpha1.PodSpec{
+			Annotations: map[string]string{"vault.hashicorp.com/agent-inject": "true"},
+		}
+
+		deployment, err := authnres.NewDeployment(context.Background(), authn)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(deployment.Spec.Template.Annotations).To(HaveKeyWithValue("vault.hashicorp.com/agent-inject", "true"))
+		Expect(deployment.Spec.Template.Annotations).To(HaveKey(authnres.ConfigChecksumAnnotation))
+	})
+
+	It("does not let user annotations override the reserved config-checksum annotation", func() {
+		authn.Spec.Deployment.Pod = &authv1alpha1.PodSpec{
+			Annotations: map[string]string{authnres.ConfigChecksumAnnotation: "tampered"},
+		}
+
+		deployment, err := authnres.NewDeployment(context.Background(), authn)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(deployment.Spec.Template.Annotations).To(HaveKey(authnres.ConfigChecksumAnnotation))
+		Expect(deployment.Spec.Template.Annotations[authnres.ConfigChecksumAnnotation]).NotTo(Equal("tampered"))
+	})
+
 	It("renders optional pod fields from spec.deployment.pod", func() {
 		fsGroup := int64(2000)
 		authn.Spec.Deployment.Pod = &authv1alpha1.PodSpec{

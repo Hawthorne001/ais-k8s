@@ -1671,6 +1671,12 @@ spec:
                                 x-kubernetes-list-type: atomic
                             type: object
                         type: object
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations holds additional pod annotations
+                          for the AuthN pod template.
+                        type: object
                       imagePullSecrets:
                         items:
                           description: |-

@@ -15,6 +15,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - `AIStoreAuthProfile`
   - Webhook validation rejects requests with user info in `spec.serviceURL`
 - Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth.enabled`.
+- `AIStoreAuth`
+  - Support for `spec.deployment.pod.annotations` to set custom annotations on the AuthN Deployment pod template.
 
 ### Changed
 

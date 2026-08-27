@@ -341,6 +341,10 @@ type ContainerSpec struct {
 
 // PodSpec configures the AuthN Pod.
 type PodSpec struct {
+	// Annotations holds additional pod annotations for the AuthN pod template.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
 	// +optional
 	SecurityContext *corev1.PodSecurityContext `json:"securityContext,omitempty"`
 
