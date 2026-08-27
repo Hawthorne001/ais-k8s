@@ -148,11 +148,6 @@ func (in *AIStoreSpec) DeepCopyInto(out *AIStoreSpec) {
 		*out = new(bool)
 		**out = **in
 	}
-	if in.ClusterDomain != nil {
-		in, out := &in.ClusterDomain, &out.ClusterDomain
-		*out = new(string)
-		**out = **in
-	}
 	if in.GCPSecretName != nil {
 		in, out := &in.GCPSecretName, &out.GCPSecretName
 		*out = new(string)

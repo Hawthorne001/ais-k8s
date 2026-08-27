@@ -6,6 +6,7 @@ package cmn
 
 import (
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
+	"github.com/ais-operator/internal/opinfo"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,11 @@ var _ = Describe("Env", Label("short"), func() {
 		It("includes the host IPs var", func() {
 			Expect(CommonInitEnv(&aisv1.AIStore{}, false)).To(
 				ContainElement(EnvFromFieldPath(EnvHostIPS, "status.hostIPs")))
+		})
+
+		It("includes the cluster domain", func() {
+			Expect(CommonInitEnv(&aisv1.AIStore{}, false)).To(
+				ContainElement(EnvFromValue(EnvClusterDomain, opinfo.ClusterDomain())))
 		})
 
 		It("sets the public DNS mode from the spec", func() {

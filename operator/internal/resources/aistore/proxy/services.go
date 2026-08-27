@@ -5,7 +5,6 @@
 package proxy
 
 import (
-	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	"github.com/ais-operator/internal/resources/aistore/cmn"
 	"github.com/ais-operator/internal/resources/ownerref"
@@ -19,19 +18,8 @@ const (
 	ServiceLabelLB       = "proxy-lb"
 )
 
-func headlessSVCName(aisName string) string {
-	return aisName + "-" + aisapc.Proxy
-}
-
-func HeadlessSVCNSName(ais *aisv1.AIStore) types.NamespacedName {
-	return types.NamespacedName{
-		Name:      headlessSVCName(ais.Name),
-		Namespace: ais.Namespace,
-	}
-}
-
 func loadBalancerSVCName(ais *aisv1.AIStore) string {
-	return ais.Name + "-" + aisapc.Proxy + "-lb"
+	return ais.ProxyStatefulSetName() + "-lb"
 }
 
 func LoadBalancerSVCNSName(ais *aisv1.AIStore) types.NamespacedName {
@@ -46,8 +34,8 @@ func NewProxyHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration
 	servicePort := ais.Spec.ProxySpec.ServicePort
 	controlPort := ais.Spec.ProxySpec.IntraControlPort
 	dataPort := ais.Spec.ProxySpec.IntraDataPort
-
-	return corev1ac.Service(headlessSVCName(ais.Name), ais.Namespace).
+	svc := ais.ProxyHeadlessSVCNSName()
+	return corev1ac.Service(svc.Name, svc.Namespace).
 		WithOwnerReferences(ownerref.NewControllerRef(ais)).
 		WithAnnotations(map[string]string{
 			"prometheus.io/scrape": "true",

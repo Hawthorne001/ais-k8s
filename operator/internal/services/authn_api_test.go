@@ -45,8 +45,7 @@ var _ = Describe("Subject token", func() {
 	}
 
 	BeforeEach(func() {
-		GinkgoT().Setenv("KUBERNETES_CLUSTER_DOMAIN", "cluster.local")
-		Expect(opinfo.Resolve(context.Background(),
+		Expect(opinfo.ResolveServiceAccount(context.Background(),
 			reviewedAs("system:serviceaccount:"+operatorNamespace+":"+operatorSA))).To(Succeed())
 	})
 

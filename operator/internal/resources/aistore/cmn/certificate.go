@@ -11,6 +11,7 @@ import (
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	certres "github.com/ais-operator/internal/resources/certificates"
 	"github.com/ais-operator/internal/resources/ownerref"
+	"github.com/ais-operator/internal/svcaddr"
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmapiv1ac "github.com/cert-manager/cert-manager/pkg/client/applyconfigurations/certmanager/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,30 +66,30 @@ func certUsages() []certmanagerv1.KeyUsage {
 	}
 }
 
-func addServiceDNSNames(names []string, svcName, namespace, clusterDomain string) []string {
+func addServiceDNSNames(names []string, svc types.NamespacedName) []string {
 	return append(names,
 		// Used for registration of targets/proxies
-		svcName,
+		svc.Name,
 		// Used for operator communication
-		fmt.Sprintf("%s.%s", svcName, namespace),
+		fmt.Sprintf("%s.%s", svc.Name, svc.Namespace),
 		// Consistent URL for client pods
-		fmt.Sprintf("%s.%s.svc.%s", svcName, namespace, clusterDomain),
+		svcaddr.ServiceFQDN(svc),
 	)
 }
 
 func buildCertificateSANs(ais *aisv1.AIStore, publicHosts []string) (dnsNames, ipAddresses []string) {
-	clusterDomain := ClusterDomain(ais)
-
 	// Add DNS names for proxy service
-	dnsNames = addServiceDNSNames(dnsNames, fmt.Sprintf("%s-proxy", ais.Name), ais.Namespace, clusterDomain)
+	proxySvc := ais.ProxyHeadlessSVCNSName()
+	dnsNames = addServiceDNSNames(dnsNames, proxySvc)
 
 	// Add DNS names for target service
-	dnsNames = addServiceDNSNames(dnsNames, fmt.Sprintf("%s-target", ais.Name), ais.Namespace, clusterDomain)
+	targetSvc := ais.TargetHeadlessSVCNSName()
+	dnsNames = addServiceDNSNames(dnsNames, targetSvc)
 
 	// Add wildcard DNS names (for intra-cluster communication)
 	dnsNames = append(dnsNames,
-		fmt.Sprintf("*.%s-proxy.%s.svc.%s", ais.Name, ais.Namespace, clusterDomain),
-		fmt.Sprintf("*.%s-target.%s.svc.%s", ais.Name, ais.Namespace, clusterDomain),
+		svcaddr.WildcardServiceFQDN(proxySvc),
+		svcaddr.WildcardServiceFQDN(targetSvc),
 	)
 
 	// Add node names/IPs for direct communication (multi-homing support)

@@ -6,39 +6,37 @@ package cmn
 
 import (
 	"fmt"
+	"net"
 
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
-	"github.com/ais-operator/internal/opinfo"
+	"github.com/ais-operator/internal/svcaddr"
 )
-
-// ClusterDomain returns the DNS domain the cluster's services are addressed under.
-func ClusterDomain(ais *aisv1.AIStore) string {
-	//nolint:staticcheck // ClusterDomain spec option will be removed in the next major release.
-	if domain := ais.Spec.ClusterDomain; domain != nil {
-		return *domain
-	}
-	return opinfo.ClusterDomain()
-}
 
 // DefaultProxyURL returns the URL of the proxy that starts out as primary.
 func DefaultProxyURL(ais *aisv1.AIStore) string {
 	// Example: https://ais-proxy-0.ais-proxy.ais.svc.cluster.local:51082
-	return fmt.Sprintf("%s://%s.%s.%s.%s", urlScheme(ais), ais.DefaultPrimaryName(),
-		ais.ProxyStatefulSetName(), ais.Namespace, controlSvcSuffix(ais))
+	return svcaddr.PodURL(urlScheme(ais), ais.DefaultPrimaryName(),
+		ais.ProxyHeadlessSVCNSName(), ais.Spec.ProxySpec.IntraControlPort.String())
 }
 
 // IntraClusterURL returns the URL of the cluster-internal proxy service on the public network.
 func IntraClusterURL(ais *aisv1.AIStore) string {
 	// Example: https://ais-proxy.ais.svc.cluster.local:51080
-	return fmt.Sprintf("%s://%s.%s.%s", urlScheme(ais),
-		ais.ProxyStatefulSetName(), ais.Namespace, publicSvcSuffix(ais))
+	return svcaddr.ServiceURL(urlScheme(ais),
+		ais.ProxyHeadlessSVCNSName(), ais.Spec.ProxySpec.PublicPort.String())
 }
 
 // DiscoveryProxyURL returns the URL of the proxy service on the intra-control network.
 func DiscoveryProxyURL(ais *aisv1.AIStore) string {
 	// Example: https://ais-proxy.ais.svc.cluster.local:51082
-	return fmt.Sprintf("%s://%s.%s.%s", urlScheme(ais),
-		ais.ProxyStatefulSetName(), ais.Namespace, controlSvcSuffix(ais))
+	return svcaddr.ServiceURL(urlScheme(ais),
+		ais.ProxyHeadlessSVCNSName(), ais.Spec.ProxySpec.IntraControlPort.String())
+}
+
+// AISHostURL returns the URL matching the AIS scheme with the given hostname and port.
+// The hostname may be a DNS name or an IPv4 or IPv6 literal.
+func AISHostURL(ais *aisv1.AIStore, hostname, port string) string {
+	return fmt.Sprintf("%s://%s", urlScheme(ais), net.JoinHostPort(hostname, port))
 }
 
 func urlScheme(ais *aisv1.AIStore) string {
@@ -46,12 +44,4 @@ func urlScheme(ais *aisv1.AIStore) string {
 		return "https"
 	}
 	return "http"
-}
-
-func controlSvcSuffix(ais *aisv1.AIStore) string {
-	return fmt.Sprintf("svc.%s:%s", ClusterDomain(ais), ais.Spec.ProxySpec.IntraControlPort.String())
-}
-
-func publicSvcSuffix(ais *aisv1.AIStore) string {
-	return fmt.Sprintf("svc.%s:%s", ClusterDomain(ais), ais.Spec.ProxySpec.PublicPort.String())
 }

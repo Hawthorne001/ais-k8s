@@ -165,42 +165,46 @@ var _ = Describe("discoverClusterDomain", func() {
 	})
 })
 
-var _ = Describe("resolveClusterDomain", func() {
-	It("should prefer the configured domain over discovery", func() {
+var _ = Describe("ResolveDomain", func() {
+	BeforeEach(func() {
+		// the host's resolver configuration is not the operator's
 		GinkgoT().Setenv(clusterDomainEnv, testClusterDomain)
 
-		domain, err := resolveClusterDomain(GinkgoLogr)
+		domain := clusterDomain
+		DeferCleanup(func() {
+			clusterDomain = domain
+		})
+	})
+
+	It("should publish the domain for the rest of the operator to read", func() {
+		err := ResolveDomain(context.TODO())
 
 		Expect(err).NotTo(HaveOccurred())
-		Expect(domain).To(Equal(testClusterDomain))
+		Expect(ClusterDomain()).To(Equal(testClusterDomain))
 	})
 
 	It("should fail when the configured domain is not a DNS domain", func() {
 		GinkgoT().Setenv(clusterDomainEnv, "not_a_domain")
 
-		_, err := resolveClusterDomain(GinkgoLogr)
+		err := ResolveDomain(context.TODO())
 
 		Expect(err).To(MatchError(ContainSubstring("not_a_domain")))
 	})
 })
 
-var _ = Describe("Resolve", func() {
+var _ = Describe("ResolveServiceAccount", func() {
 	BeforeEach(func() {
-		// the host's resolver configuration is not the operator's
-		GinkgoT().Setenv(clusterDomainEnv, testClusterDomain)
-
-		domain, sa := clusterDomain, serviceAccount
+		sa := serviceAccount
 		DeferCleanup(func() {
-			clusterDomain, serviceAccount = domain, sa
+			serviceAccount = sa
 		})
 	})
 
-	It("should publish both facts for the rest of the operator to read", func() {
-		err := Resolve(context.TODO(),
+	It("should publish the identity for the rest of the operator to read", func() {
+		err := ResolveServiceAccount(context.TODO(),
 			reviewedAs("system:serviceaccount:"+operatorNamespace+":"+operatorSA))
 
 		Expect(err).NotTo(HaveOccurred())
-		Expect(ClusterDomain()).To(Equal(testClusterDomain))
 		Expect(ServiceAccount()).To(Equal(types.NamespacedName{
 			Namespace: operatorNamespace,
 			Name:      operatorSA,
@@ -208,7 +212,7 @@ var _ = Describe("Resolve", func() {
 	})
 
 	It("should fail when the identity cannot be determined", func() {
-		err := Resolve(context.TODO(), reviewedAs("kubernetes-admin"))
+		err := ResolveServiceAccount(context.TODO(), reviewedAs("kubernetes-admin"))
 
 		Expect(err).To(MatchError(ContainSubstring("is not a ServiceAccount")))
 	})

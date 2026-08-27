@@ -92,7 +92,7 @@ func (r *Reconciler) initProxies(ctx context.Context, ais *aisv1.AIStore) (ctrl.
 }
 
 func (r *Reconciler) checkProxySvcEndpoints(ctx context.Context, ais *aisv1.AIStore) (ctrl.Result, error) {
-	svcName := proxy.HeadlessSVCNSName(ais)
+	svcName := ais.ProxyHeadlessSVCNSName()
 	logger := logf.FromContext(ctx).WithValues("service", svcName.Name)
 	endpoints, err := r.k8sClient.GetServiceEndpoints(ctx, svcName)
 	if err != nil {
@@ -116,7 +116,7 @@ func (r *Reconciler) checkProxySvcEndpoints(ctx context.Context, ais *aisv1.AISt
 func (r *Reconciler) cleanupProxy(ctx context.Context, ais *aisv1.AIStore) (anyExisted bool, err error) {
 	return cmn.AnyFunc(
 		func() (bool, error) { return r.k8sClient.DeleteStatefulSetIfExists(ctx, proxy.StatefulSetNSName(ais)) },
-		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, proxy.HeadlessSVCNSName(ais)) },
+		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, ais.ProxyHeadlessSVCNSName()) },
 		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, proxy.LoadBalancerSVCNSName(ais)) },
 		func() (bool, error) { return r.k8sClient.DeleteConfigMapIfExists(ctx, proxy.ConfigMapNSName(ais)) },
 	)

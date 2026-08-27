@@ -96,7 +96,7 @@ func (r *Reconciler) cleanupTarget(ctx context.Context, ais *aisv1.AIStore) (upd
 	return cmn.AnyFunc(
 		func() (bool, error) { return r.k8sClient.DeletePDBIfExists(ctx, target.PDBNSName(ais)) },
 		func() (bool, error) { return r.cleanupTargetSS(ctx, ais) },
-		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, target.HeadlessSVCNSName(ais)) },
+		func() (bool, error) { return r.k8sClient.DeleteServiceIfExists(ctx, ais.TargetHeadlessSVCNSName()) },
 		func() (bool, error) {
 			return r.k8sClient.DeleteAllServicesIfExist(ctx, ais.Namespace, cmn.NewServiceLabels(ais.Name, target.ServiceLabelLB))
 		},

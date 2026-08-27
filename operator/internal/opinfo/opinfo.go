@@ -44,7 +44,7 @@ const (
 	serviceAccountUsernamePrefix = "system:serviceaccount:"
 )
 
-// Written once by Resolve, read-only thereafter.
+// Written once during resolution, read-only thereafter.
 var (
 	clusterDomain = defaultClusterDomain
 
@@ -57,21 +57,24 @@ func ClusterDomain() string { return clusterDomain }
 // ServiceAccount returns the ServiceAccount the operator authenticates as.
 func ServiceAccount() types.NamespacedName { return serviceAccount }
 
-// Resolve determines the cluster domain and the operator's own identity.
-func Resolve(ctx context.Context, c client.Client) error {
-	logger := logf.FromContext(ctx)
-	resolvedDomain, err := resolveClusterDomain(logger)
+// ResolveDomain determines the domain for this K8s cluster.
+func ResolveDomain(ctx context.Context) error {
+	resolvedDomain, err := resolveClusterDomain(logf.FromContext(ctx))
 	if err != nil {
 		return err
 	}
 	clusterDomain = resolvedDomain
+	return nil
+}
 
+// ResolveServiceAccount determines the operator's own ServiceAccount identity.
+func ResolveServiceAccount(ctx context.Context, c client.Client) error {
 	sa, err := selfServiceAccountName(ctx, c)
 	if err != nil {
 		return err
 	}
 	serviceAccount = sa
-	logger.Info("Resolved the operator identity", "serviceAccount", sa.String())
+	logf.FromContext(ctx).Info("Resolved the operator identity", "serviceAccount", sa.String())
 	return nil
 }
 

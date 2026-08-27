@@ -10,9 +10,9 @@ import (
 	"net/url"
 
 	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
-	"github.com/ais-operator/internal/opinfo"
 	certres "github.com/ais-operator/internal/resources/certificates"
 	"github.com/ais-operator/internal/resources/ownerref"
+	"github.com/ais-operator/internal/svcaddr"
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmapiv1ac "github.com/cert-manager/cert-manager/pkg/client/applyconfigurations/certmanager/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -93,7 +93,8 @@ func certificateDNSNames(
 	// Reserve localhost, four Service DNS names, and one possible external URL hostname.
 	dnsNames = make([]string, 0, 6+len(externalEndpoints)+len(config.AdditionalDNSNames))
 	dnsNames = append(dnsNames, "localhost")
-	dnsNames = appendServiceDNSNames(dnsNames, ServiceName(authn), authn.Namespace)
+	svc := ServiceNSName(authn)
+	dnsNames = appendServiceDNSNames(dnsNames, svc)
 	dnsNames, _ = certres.AppendHosts(dnsNames, nil, externalEndpoints...)
 	if externalURLHost := configuredExternalURLHost(ctx, authn); externalURLHost != "" {
 		dnsNames, _ = certres.AppendHosts(dnsNames, nil, externalURLHost)
@@ -116,11 +117,11 @@ func configuredExternalURLHost(ctx context.Context, authn *authv1alpha1.AIStoreA
 	return externalURL.Hostname()
 }
 
-func appendServiceDNSNames(names []string, serviceName, namespace string) []string {
+func appendServiceDNSNames(names []string, svc types.NamespacedName) []string {
 	return append(names,
-		serviceName,
-		fmt.Sprintf("%s.%s", serviceName, namespace),
-		fmt.Sprintf("%s.%s.svc", serviceName, namespace),
-		fmt.Sprintf("%s.%s.svc.%s", serviceName, namespace, opinfo.ClusterDomain()),
+		svc.Name,
+		fmt.Sprintf("%s.%s", svc.Name, svc.Namespace),
+		fmt.Sprintf("%s.%s.svc", svc.Name, svc.Namespace),
+		svcaddr.ServiceFQDN(svc),
 	)
 }

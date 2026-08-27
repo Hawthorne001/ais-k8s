@@ -27,6 +27,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - Tokens with a lifetime at or below the default 5 minute refresh margin are no longer refreshed on every reconcile.
 - Clarified client config logging for authentication service and AIS API requests.
 - Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
+- Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
 
 ### Removed
 
@@ -40,6 +41,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
   - Use `aisContainerSecurityContext` on the same specs.
 - `spec.enableExternalLB`, deprecated in v3.1.0.
   - Use `spec.proxySpec.externalAccess` and/or `spec.targetSpec.externalAccess`.
+- `spec.clusterDomain`, deprecated in v3.4.0. 
+  - AIS clusters will always use the cluster domain the operator is configured with or discovers at startup.
 
 ---
 

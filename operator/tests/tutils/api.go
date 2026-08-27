@@ -58,7 +58,7 @@ func CheckResExistence(ctx context.Context, cluster *aisv1.AIStore, aisCfg *AIST
 	// 2.1 config
 	EventuallyCMExists(ctx, k8sClient, proxy.ConfigMapNSName(cluster), condition, intervals...)
 	// 2.2 Service
-	EventuallyServiceExists(ctx, k8sClient, proxy.HeadlessSVCNSName(cluster), condition, intervals...)
+	EventuallyServiceExists(ctx, k8sClient, cluster.ProxyHeadlessSVCNSName(), condition, intervals...)
 	// 2.3 StatefulSet
 	EventuallySSExists(ctx, k8sClient, proxy.StatefulSetNSName(cluster), condition, intervals...)
 	// 2.4 ExternalLB Service (optional)
@@ -70,7 +70,7 @@ func CheckResExistence(ctx context.Context, cluster *aisv1.AIStore, aisCfg *AIST
 	// 3.1 config
 	EventuallyCMExists(ctx, k8sClient, target.ConfigMapNSName(cluster), condition, intervals...)
 	// 3.2 Service
-	EventuallyServiceExists(ctx, k8sClient, target.HeadlessSVCNSName(cluster), condition, intervals...)
+	EventuallyServiceExists(ctx, k8sClient, cluster.TargetHeadlessSVCNSName(), condition, intervals...)
 	// 3.3 StatefulSet
 	EventuallySSExists(ctx, k8sClient, target.StatefulSetNSName(cluster), condition, intervals...)
 	// 3.4 ExternalLB Service (optional)

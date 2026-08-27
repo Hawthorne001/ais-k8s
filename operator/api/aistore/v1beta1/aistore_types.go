@@ -357,13 +357,6 @@ type AIStoreSpec struct {
 	// +optional
 	CleanupData *bool `json:"cleanupData,omitempty"`
 
-	// Defines the cluster domain name for DNS.
-	// If set, will override the cluster domain the operator is configured with or discovers at startup.
-	//
-	// Deprecated: Leave unset to use the cluster domain the operator is configured with or discovers at startup.
-	// +optional
-	ClusterDomain *string `json:"clusterDomain,omitempty"`
-
 	// Secret name containing GCP config and credentials
 	// +optional
 	GCPSecretName *string `json:"gcpSecretName,omitempty"`
@@ -757,8 +750,26 @@ func (ais *AIStore) ProxyStatefulSetName() string {
 	return ais.Name + "-" + aisapc.Proxy
 }
 
+func (ais *AIStore) TargetStatefulSetName() string {
+	return ais.Name + "-" + aisapc.Target
+}
+
 func (ais *AIStore) DefaultPrimaryName() string {
 	return ais.ProxyStatefulSetName() + "-0"
+}
+
+func (ais *AIStore) ProxyHeadlessSVCNSName() types.NamespacedName {
+	return types.NamespacedName{
+		Name:      ais.ProxyStatefulSetName(),
+		Namespace: ais.Namespace,
+	}
+}
+
+func (ais *AIStore) TargetHeadlessSVCNSName() types.NamespacedName {
+	return types.NamespacedName{
+		Name:      ais.TargetStatefulSetName(),
+		Namespace: ais.Namespace,
+	}
 }
 
 func (ais *AIStore) GetProxySize() int32 {

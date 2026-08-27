@@ -12,7 +12,7 @@ import (
 )
 
 func pdbName(ais *aisv1.AIStore) string {
-	return statefulSetName(ais)
+	return ais.TargetStatefulSetName()
 }
 
 func PDBNSName(ais *aisv1.AIStore) types.NamespacedName {

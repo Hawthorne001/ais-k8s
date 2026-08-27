@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
+	"github.com/ais-operator/internal/opinfo"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -50,7 +51,7 @@ func CommonEnv(ais *aisv1.AIStore) []corev1.EnvVar {
 func CommonInitEnv(ais *aisv1.AIStore, externalAccessEnabled bool) []corev1.EnvVar {
 	initEnv := []corev1.EnvVar{
 		EnvFromFieldPath(EnvHostIPS, "status.hostIPs"),
-		EnvFromValue(EnvClusterDomain, ClusterDomain(ais)),
+		EnvFromValue(EnvClusterDomain, opinfo.ClusterDomain()),
 		EnvFromValue(EnvEnableExternalAccess, strconv.FormatBool(externalAccessEnabled)),
 	}
 	if ais.Spec.PublicNetDNSMode != nil {

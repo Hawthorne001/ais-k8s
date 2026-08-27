@@ -16,13 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func statefulSetName(ais *aisv1.AIStore) string {
-	return ais.Name + "-" + aisapc.Target
-}
-
 func StatefulSetNSName(ais *aisv1.AIStore) types.NamespacedName {
 	return types.NamespacedName{
-		Name:      statefulSetName(ais),
+		Name:      ais.TargetStatefulSetName(),
 		Namespace: ais.Namespace,
 	}
 }
@@ -45,7 +41,7 @@ func NewTargetSS(ais *aisv1.AIStore, expectedSize int32) *apiv1.StatefulSet {
 
 	ss := &apiv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        statefulSetName(ais),
+			Name:        ais.TargetStatefulSetName(),
 			Namespace:   ais.Namespace,
 			Labels:      basicLabels,
 			Annotations: map[string]string{cmn.RestartConfigHashAnnotation: ais.Annotations[cmn.RestartConfigHashAnnotation]},
@@ -54,7 +50,7 @@ func NewTargetSS(ais *aisv1.AIStore, expectedSize int32) *apiv1.StatefulSet {
 			Selector: &metav1.LabelSelector{
 				MatchLabels: SelectorLabels(ais),
 			},
-			ServiceName:         headlessSVCName(ais.Name),
+			ServiceName:         ais.TargetHeadlessSVCNSName().Name,
 			PodManagementPolicy: apiv1.ParallelPodManagement,
 			Replicas:            &expectedSize,
 			UpdateStrategy: apiv1.StatefulSetUpdateStrategy{
@@ -128,7 +124,7 @@ func targetPodSpec(ais *aisv1.AIStore) *corev1.PodSpec {
 
 func NewInitContainerEnv(ais *aisv1.AIStore) (initEnv []corev1.EnvVar) {
 	initEnv = cmn.CommonInitEnv(ais, ais.TargetExternalAccessEnabled())
-	initEnv = append(initEnv, cmn.EnvFromValue(cmn.EnvServiceName, headlessSVCName(ais.Name)))
+	initEnv = append(initEnv, cmn.EnvFromValue(cmn.EnvServiceName, ais.TargetHeadlessSVCNSName().Name))
 	if ais.Spec.TargetSpec.HostPort != nil && !ais.TargetExternalAccessEnabled() {
 		if ais.UseNodeNameForPublicNet() {
 			initEnv = append(initEnv, cmn.EnvFromFieldPath(cmn.EnvPublicHostname, "spec.nodeName"))

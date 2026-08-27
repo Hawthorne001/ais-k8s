@@ -282,7 +282,10 @@ func resolveOperatorInfo(cfg *rest.Config) error {
 	ctx, cancel := context.WithTimeout(logf.IntoContext(context.Background(), setupLog), operatorInfoTimeout)
 	defer cancel()
 
-	return opinfo.Resolve(ctx, c)
+	if err = opinfo.ResolveDomain(ctx); err != nil {
+		return err
+	}
+	return opinfo.ResolveServiceAccount(ctx, c)
 }
 
 // If namespace arg is provided, update config options to restrict which namespaces the manager watches

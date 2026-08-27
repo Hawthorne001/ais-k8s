@@ -7,7 +7,6 @@ package target
 import (
 	"fmt"
 
-	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	"github.com/ais-operator/internal/resources/aistore/cmn"
 	"github.com/ais-operator/internal/resources/ownerref"
@@ -21,19 +20,8 @@ const (
 	ServiceLabelLB       = "target-lb"
 )
 
-func headlessSVCName(aisName string) string {
-	return aisName + "-" + aisapc.Target
-}
-
-func HeadlessSVCNSName(ais *aisv1.AIStore) types.NamespacedName {
-	return types.NamespacedName{
-		Name:      headlessSVCName(ais.Name),
-		Namespace: ais.Namespace,
-	}
-}
-
 func loadBalancerSVCName(ais *aisv1.AIStore, index int32) string {
-	return fmt.Sprintf("%s-%d", statefulSetName(ais), index)
+	return fmt.Sprintf("%s-%d", ais.TargetStatefulSetName(), index)
 }
 
 func LoadBalancerSVCNSName(ais *aisv1.AIStore, index int32) types.NamespacedName {
@@ -44,14 +32,15 @@ func LoadBalancerSVCNSName(ais *aisv1.AIStore, index int32) types.NamespacedName
 }
 
 func PodName(ais *aisv1.AIStore, index int32) string {
-	return fmt.Sprintf("%s-%d", statefulSetName(ais), index)
+	return fmt.Sprintf("%s-%d", ais.TargetStatefulSetName(), index)
 }
 
 func NewTargetHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration {
 	servicePort := ais.Spec.TargetSpec.ServicePort
 	controlPort := ais.Spec.TargetSpec.IntraControlPort
 	dataPort := ais.Spec.TargetSpec.IntraDataPort
-	return corev1ac.Service(headlessSVCName(ais.Name), ais.Namespace).
+	svc := ais.TargetHeadlessSVCNSName()
+	return corev1ac.Service(svc.Name, svc.Namespace).
 		WithOwnerReferences(ownerref.NewControllerRef(ais)).
 		WithAnnotations(map[string]string{
 			"prometheus.io/scrape": "true",
