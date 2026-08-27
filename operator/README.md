@@ -224,7 +224,6 @@ This section discusses AIStore accessibility by external clients - the clients *
 By default, each AIS pod will deploy with a `HostPort` configuration, allowing any client with access to the host to communicate to the pod directly over the specified port. 
 
 The AIStore custom resource supports per-role external access via `spec.proxySpec.externalAccess` (one shared proxy LoadBalancer) and `spec.targetSpec.externalAccess` (one LoadBalancer per target ordinal). 
-The legacy `enableExternalLB` field enables LoadBalancer services for **both** proxies and targets. 
 External access relies on the K8s cluster assigning an external IP or hostname to these `LoadBalancer` services.
 
 > **NOTE**: Currently, external access can be enabled only for new AIS clusters.
@@ -234,7 +233,10 @@ External access relies on the K8s cluster assigning an external IP or hostname t
 **Setting up external IPs**
 
 The cluster must support provisioning enough external IPs to enable the external LoadBalancers.
-With `enableExternalLB`, the cluster must assign external IPs to (N + 1) LoadBalancer services: one per target plus one shared proxy LoadBalancer.
+
+`proxySpec.externalAccess` creates one shared proxy LoadBalancer, so it needs a single external IP.
+
+`targetSpec.externalAccess` creates one LoadBalancer per target, so it needs N external IPs for a cluster of N targets.
 
 - **Bare-Metal On-Premises Deployments**: For these setups, we recommend using [MetalLB](https://metallb.universe.tf/), a popular solution for on-premises Kubernetes environments.
 - **Cloud-Based Deployments**: If your AIStore is running in a cloud environment, you can utilize standard HTTP load balancer services provided by the cloud provider.

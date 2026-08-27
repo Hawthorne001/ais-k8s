@@ -93,17 +93,6 @@ var _ = Describe("Proxy NewInitContainerEnv", func() {
 			Expect(ok).To(BeTrue())
 			Expect(extEnv.Value).To(Equal("true"))
 		})
-
-		It("should still set AIS_PUBLIC_HOSTNAME with the legacy enableExternalLB", func() {
-			ais := newAIS(aisv1.AIStoreSpec{
-				ProxySpec:        aisv1.DaemonSpec{HostPort: aisapc.Ptr(int32(51080))},
-				EnableExternalLB: true,
-			})
-			env := NewInitContainerEnv(ais)
-			ev, ok := envByName(env, cmn.EnvPublicHostname)
-			Expect(ok).To(BeTrue())
-			Expect(ev.ValueFrom.FieldRef.FieldPath).To(Equal("status.hostIP"))
-		})
 	})
 
 	Describe("service name", func() {

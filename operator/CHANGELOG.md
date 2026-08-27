@@ -37,6 +37,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
   - Delete any remaining `<cluster>-statsd` ConfigMap manually.
 - `spec.proxySpec.capabilities` and `spec.targetSpec.capabilities`, deprecated in v3.0.0.
   - Use `aisContainerSecurityContext` on the same specs.
+- `spec.enableExternalLB`, deprecated in v3.1.0.
+  - Use `spec.proxySpec.externalAccess` and/or `spec.targetSpec.externalAccess`.
 
 ---
 

@@ -162,7 +162,6 @@ func (ais *AIStore) validateDeprecatedFields() (admission.Warnings, error) {
 		{ais.Spec.ClusterDomain != nil, "spec.clusterDomain", "the operator's configured or discovered cluster domain"},
 		{ais.Spec.HostpathPrefix != nil, "spec.hostpathPrefix", "spec.stateStorage.hostPath.prefix"},
 		{ais.Spec.StateStorageClass != nil, "spec.stateStorageClass", "spec.stateStorage.pvc.storageClass"},
-		{ais.Spec.EnableExternalLB, "spec.enableExternalLB", "spec.proxySpec.externalAccess and/or spec.targetSpec.externalAccess"},
 	}
 
 	var warnings admission.Warnings

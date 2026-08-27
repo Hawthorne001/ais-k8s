@@ -69,9 +69,6 @@ func (aisw *AIStoreWebhook) ValidateUpdate(ctx context.Context, prev, ais *aisv1
 		return warnings, err
 	}
 
-	if ais.Spec.EnableExternalLB != prev.Spec.EnableExternalLB { //nolint:staticcheck // deprecated EnableExternalLB field
-		return warnings, errCannotUpdateSpec("enableExternalLB")
-	}
 	if storageErr := validateStateStorageUpdate(prev, ais); storageErr != nil {
 		return warnings, storageErr
 	}

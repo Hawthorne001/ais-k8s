@@ -75,7 +75,8 @@ var _ = Describe("Run Controller", func() {
 
 		Context("with externalLB", func() {
 			It("Should successfully create an AIS Cluster with required K8s objects", func(ctx context.Context) {
-				cluArgs.EnableExternalLB = true
+				cluArgs.ProxyExternalAccess = true
+				cluArgs.TargetExternalAccess = true
 				cc := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
 				cc.createAndDestroyWithWait(ctx)
 			})
@@ -85,7 +86,8 @@ var _ = Describe("Run Controller", func() {
 				cluArgs.TargetSize = 2
 				cluArgs.ProxySize = 1
 				cluArgs.DisableTargetAntiAffinity = true
-				cluArgs.EnableExternalLB = true
+				cluArgs.ProxyExternalAccess = true
+				cluArgs.TargetExternalAccess = true
 				cc := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
 				cc.createAndDestroyWithWait(ctx)
 			})
@@ -326,7 +328,8 @@ var _ = Describe("Run Controller", func() {
 		var cc *clientCluster
 
 		BeforeAll(func(ctx context.Context) {
-			cluArgs.EnableExternalLB = true
+			cluArgs.ProxyExternalAccess = true
+			cluArgs.TargetExternalAccess = true
 			cluArgs.MaxTargets = 2
 			cc = newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
 			cc.create(ctx)

@@ -303,7 +303,6 @@ var _ = Describe("AIStore", func() {
 		DescribeTable("ProxyExternalAccessEnabled", func(ais AIStore, want bool) {
 			Expect(ais.ProxyExternalAccessEnabled()).To(Equal(want))
 		},
-			Entry("legacy enableExternalLB", AIStore{Spec: AIStoreSpec{EnableExternalLB: true}}, true),
 			Entry("proxy externalAccess", AIStore{Spec: AIStoreSpec{
 				ProxySpec: DaemonSpec{ExternalAccess: &ExternalAccessSpec{}},
 			}}, true),
@@ -316,7 +315,6 @@ var _ = Describe("AIStore", func() {
 		DescribeTable("TargetExternalAccessEnabled", func(ais AIStore, want bool) {
 			Expect(ais.TargetExternalAccessEnabled()).To(Equal(want))
 		},
-			Entry("legacy enableExternalLB", AIStore{Spec: AIStoreSpec{EnableExternalLB: true}}, true),
 			Entry("target externalAccess", AIStore{Spec: AIStoreSpec{
 				TargetSpec: TargetSpec{DaemonSpec: DaemonSpec{ExternalAccess: &ExternalAccessSpec{}}},
 			}}, true),

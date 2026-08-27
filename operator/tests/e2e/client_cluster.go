@@ -59,7 +59,7 @@ type clientCluster struct {
 }
 
 func (cc *clientCluster) applyDefaultHostPortOffset(args *tutils.ClusterSpecArgs) {
-	if args.EnableExternalLB || args.ProxyExternalAccess || args.TargetExternalAccess {
+	if args.ProxyExternalAccess || args.TargetExternalAccess {
 		return
 	}
 	// Apply host port offset of 10 per parallel Ginkgo process to give each process a unique host port

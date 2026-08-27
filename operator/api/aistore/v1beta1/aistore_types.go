@@ -409,12 +409,6 @@ type AIStoreSpec struct {
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 
-	// EnableExternalLB, if set, enables LoadBalancer services for external access to targets and proxies.
-	//
-	// Deprecated: set spec.proxySpec.externalAccess and/or spec.targetSpec.externalAccess to enable instead.
-	// +optional
-	EnableExternalLB bool `json:"enableExternalLB,omitempty"`
-
 	// PublicNetDNSMode Defines the public network DNS name to use with hostPort.
 	// Defaults to 'IP' to use the host IP.
 	// Other options include:
@@ -835,17 +829,11 @@ func (ais *AIStore) UseNodeNameForPublicNet() bool {
 }
 
 func (ais *AIStore) ProxyExternalAccessEnabled() bool {
-	if ais.Spec.ProxySpec.ExternalAccess != nil {
-		return true
-	}
-	return ais.Spec.EnableExternalLB
+	return ais.Spec.ProxySpec.ExternalAccess != nil
 }
 
 func (ais *AIStore) TargetExternalAccessEnabled() bool {
-	if ais.Spec.TargetSpec.ExternalAccess != nil {
-		return true
-	}
-	return ais.Spec.EnableExternalLB
+	return ais.Spec.TargetSpec.ExternalAccess != nil
 }
 
 func (ais *AIStore) ShouldStartShutdown() bool {

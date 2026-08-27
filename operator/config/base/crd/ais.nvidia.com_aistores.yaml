@@ -1831,12 +1831,6 @@ spec:
                         type: string
                     type: object
                 type: object
-              enableExternalLB:
-                description: |-
-                  EnableExternalLB, if set, enables LoadBalancer services for external access to targets and proxies.
-
-                  Deprecated: set spec.proxySpec.externalAccess and/or spec.targetSpec.externalAccess to enable instead.
-                type: boolean
               gcpSecretName:
                 description: Secret name containing GCP config and credentials
                 type: string
