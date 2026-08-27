@@ -56,14 +56,19 @@ func (v *AIStoreAuthCustomValidator) validate(ctx context.Context, authn *authv1
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
+	adminPath := specPath.Child("adminSecret")
 	if name := secretRefName(authn.Spec.AdminSecret); name != "" {
-		fieldErr, err := v.requireSecret(ctx, authn.Namespace, name, specPath.Child("adminSecret"))
+		fieldErr, err := v.requireSecret(ctx, authn.Namespace, name, adminPath)
 		if err != nil {
 			return err
 		}
 		if fieldErr != nil {
 			allErrs = append(allErrs, fieldErr)
 		}
+	} else if !hasPodAnnotations(authn) {
+		allErrs = append(allErrs, field.Required(adminPath,
+			"must set spec.adminSecret or spec.deployment.pod.annotations "+
+				"(e.g. to inject admin credentials via an external mechanism)"))
 	}
 
 	hmacName := secretRefName(authn.Spec.HMACSecret)
@@ -123,6 +128,12 @@ func secretRefName(ref *corev1.LocalObjectReference) string {
 		return ""
 	}
 	return ref.Name
+}
+
+// hasPodAnnotations reports whether the spec sets any AuthN pod template annotations.
+func hasPodAnnotations(authn *authv1alpha1.AIStoreAuth) bool {
+	pod := authn.Spec.Deployment.Pod
+	return pod != nil && len(pod.Annotations) > 0
 }
 
 // SetupAIStoreAuthWebhookWithManager registers the AIStoreAuth validating webhook with the manager.

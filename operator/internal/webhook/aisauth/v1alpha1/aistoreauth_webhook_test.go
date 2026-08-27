@@ -82,6 +82,7 @@ func TestValidateSecretRefs(t *testing.T) {
 	tests := []struct {
 		name             string
 		admin, hmac, rsa *corev1.LocalObjectReference
+		podAnnotations   map[string]string
 		existingSecrets  []string
 		wantFields       []string // empty means the spec is admitted
 	}{
@@ -100,7 +101,7 @@ func TestValidateSecretRefs(t *testing.T) {
 		{
 			name:       "hmac mode with a missing signing secret is rejected",
 			hmac:       secretRef("hmac"),
-			wantFields: []string{"spec.hmacSecret"},
+			wantFields: []string{"spec.adminSecret", "spec.hmacSecret"},
 		},
 		{
 			name:            "setting both hmac and rsa passphrase secrets is rejected",
@@ -111,7 +112,8 @@ func TestValidateSecretRefs(t *testing.T) {
 			wantFields:      []string{"spec.rsaPassphraseSecret"},
 		},
 		{
-			name: "neither signing secret is admitted (external or unprotected RSA key)",
+			name:       "neither signing secret is rejected only for the missing admin secret (external or unprotected RSA key)",
+			wantFields: []string{"spec.adminSecret"},
 		},
 		{
 			name:            "rsa mode without a passphrase reference is admitted",
@@ -121,7 +123,7 @@ func TestValidateSecretRefs(t *testing.T) {
 		{
 			name:       "rsa mode with a missing passphrase secret is rejected",
 			rsa:        secretRef("rsa-pass"),
-			wantFields: []string{"spec.rsaPassphraseSecret"},
+			wantFields: []string{"spec.adminSecret", "spec.rsaPassphraseSecret"},
 		},
 		{
 			name:            "missing admin secret is rejected",
@@ -131,10 +133,11 @@ func TestValidateSecretRefs(t *testing.T) {
 			wantFields:      []string{"spec.adminSecret"},
 		},
 		{
-			name:  "empty-name references are treated as unset and admitted",
-			admin: secretRef(""),
-			hmac:  secretRef(""),
-			rsa:   secretRef(""),
+			name:           "empty-name references are treated as unset and admitted via pod annotations",
+			admin:          secretRef(""),
+			hmac:           secretRef(""),
+			rsa:            secretRef(""),
+			podAnnotations: map[string]string{"vault.hashicorp.com/agent-inject": "true"},
 		},
 		{
 			name:       "missing admin and passphrase secrets are reported together",
@@ -148,10 +151,28 @@ func TestValidateSecretRefs(t *testing.T) {
 			hmac:       secretRef("hmac"),
 			wantFields: []string{"spec.adminSecret", "spec.hmacSecret"},
 		},
+		{
+			name:       "no admin secret and no pod annotations is rejected",
+			wantFields: []string{"spec.adminSecret"},
+		},
+		{
+			name:            "admin secret unset but pod annotations present is admitted",
+			podAnnotations:  map[string]string{"vault.hashicorp.com/agent-inject": "true"},
+			existingSecrets: nil,
+		},
+		{
+			name:           "empty pod annotations map does not satisfy the admin credential requirement",
+			podAnnotations: map[string]string{},
+			wantFields:     []string{"spec.adminSecret"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := newValidator(tc.existingSecrets...).ValidateCreate(context.Background(), newAuthN(tc.admin, tc.hmac, tc.rsa))
+			authn := newAuthN(tc.admin, tc.hmac, tc.rsa)
+			if tc.podAnnotations != nil {
+				authn.Spec.Deployment.Pod = &authv1alpha1.PodSpec{Annotations: tc.podAnnotations}
+			}
+			_, err := newValidator(tc.existingSecrets...).ValidateCreate(context.Background(), authn)
 			assertResult(t, err, tc.wantFields)
 		})
 	}
@@ -163,7 +184,7 @@ func TestValidateUpdateAndDelete(t *testing.T) {
 	authn := newAuthN(nil, secretRef("hmac"), nil) // referenced Secret does not exist
 	v := newValidator()
 	_, err := v.ValidateUpdate(context.Background(), authn, authn)
-	assertResult(t, err, []string{"spec.hmacSecret"})
+	assertResult(t, err, []string{"spec.adminSecret", "spec.hmacSecret"})
 	if _, err := v.ValidateDelete(context.Background(), authn); err != nil {
 		t.Errorf("expected delete to be a no-op, got %v", err)
 	}
