@@ -7,6 +7,7 @@ package v1beta1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -81,9 +82,19 @@ func (*AIStoreWebhook) ValidateDelete(_ context.Context, ais *aisv1.AIStore) (ad
 	return nil, nil
 }
 
-// validateSpec runs the spec-only validations defined on the AIStore type, then
-// runs webhook-only validations that require admission or cluster context.
+// validateSpec runs the spec-only validations defined on the AIStore type along with
+// webhook-only validations that require admission or cluster context.
 func (aisw *AIStoreWebhook) validateSpec(ctx context.Context, prev, ais *aisv1.AIStore) (admission.Warnings, error) {
+	// Writes with no changes must not invalidate the spec so the operator can still patch finalizers and annotations.
+	if prev != nil && equality.Semantic.DeepEqual(&prev.Spec, &ais.Spec) {
+		warnings, _ := ais.ValidateSpec(ctx)
+		return warnings, nil
+	}
+
+	if err := validateDeprecatedStateStorage(ais); err != nil {
+		return nil, err
+	}
+
 	allWarnings, err := ais.ValidateSpec(ctx)
 	if err != nil {
 		return allWarnings, err
@@ -265,6 +276,15 @@ func (aisw *AIStoreWebhook) verifyRequiredStorageClasses(ctx context.Context, ai
 				return fmt.Errorf("required storage class '%s' not found", *requiredClass)
 			}
 		}
+	}
+	return nil
+}
+
+// validateDeprecatedStateStorage rejects the state storage options that were replaced by
+// spec.stateStorage.
+func validateDeprecatedStateStorage(ais *aisv1.AIStore) error {
+	if msgs := ais.Spec.DeprecatedStateStorageMessages(); len(msgs) > 0 {
+		return errors.New(strings.Join(msgs, "; "))
 	}
 	return nil
 }

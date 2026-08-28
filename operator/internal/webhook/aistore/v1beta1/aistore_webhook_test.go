@@ -78,6 +78,177 @@ func TestValidateTargetUpdateTolerations(t *testing.T) {
 	})
 }
 
+func TestValidateDeprecatedStateStorage(t *testing.T) {
+	tests := []struct {
+		name    string
+		ais     *aisv1.AIStore
+		wantErr string
+	}{
+		{
+			name: "no deprecated options",
+			ais:  &aisv1.AIStore{},
+		},
+		{
+			name: "migrated to stateStorage",
+			ais: &aisv1.AIStore{Spec: aisv1.AIStoreSpec{
+				StateStorage: &aisv1.StateStorage{HostPath: &aisv1.StateHostPathConfig{Prefix: "/mnt"}},
+			}},
+		},
+		{
+			name:    "hostpathPrefix",
+			ais:     &aisv1.AIStore{Spec: aisv1.AIStoreSpec{HostpathPrefix: aisapc.Ptr("/mnt")}},
+			wantErr: "spec.hostpathPrefix is no longer accepted, use spec.stateStorage.hostPath.prefix",
+		},
+		{
+			name:    "stateStorageClass",
+			ais:     &aisv1.AIStore{Spec: aisv1.AIStoreSpec{StateStorageClass: aisapc.Ptr("my-sc")}},
+			wantErr: "spec.stateStorageClass is no longer accepted, use spec.stateStorage.pvc.storageClass",
+		},
+		{
+			name: "both",
+			ais: &aisv1.AIStore{Spec: aisv1.AIStoreSpec{
+				HostpathPrefix:    aisapc.Ptr("/mnt"),
+				StateStorageClass: aisapc.Ptr("my-sc"),
+			}},
+			wantErr: "spec.hostpathPrefix is no longer accepted, use spec.stateStorage.hostPath.prefix; " +
+				"spec.stateStorageClass is no longer accepted, use spec.stateStorage.pvc.storageClass",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			err := validateDeprecatedStateStorage(tt.ais)
+			if tt.wantErr == "" {
+				g.Expect(err).ToNot(HaveOccurred())
+				return
+			}
+			g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
+		})
+	}
+}
+
+func TestValidateSpecRejectsDeprecatedStateStorage(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    aisv1.AIStoreSpec
+		wantErr string
+	}{
+		{
+			name:    "hostpathPrefix",
+			spec:    aisv1.AIStoreSpec{HostpathPrefix: aisapc.Ptr("/mnt")},
+			wantErr: "spec.hostpathPrefix is no longer accepted",
+		},
+		{
+			name:    "stateStorageClass",
+			spec:    aisv1.AIStoreSpec{StateStorageClass: aisapc.Ptr("my-sc")},
+			wantErr: "spec.stateStorageClass is no longer accepted",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			aisw := &AIStoreWebhook{}
+			prev := &aisv1.AIStore{Spec: tt.spec}
+			ais := prev.DeepCopy()
+			ais.Spec.Size = aisapc.Ptr[int32](3)
+
+			_, err := aisw.validateSpec(context.Background(), prev, ais)
+			g.Expect(err).To(MatchError(ContainSubstring(tt.wantErr)))
+		})
+	}
+}
+
+// An unchanged spec must be admitted even when it would no longer pass validation, so that the
+// operator can still patch metadata on a cluster deployed under an older release.
+func TestValidateSpecUnchangedSpec(t *testing.T) {
+	// missing size fails AIStore.ValidateSpec
+	legacy := &aisv1.AIStore{Spec: aisv1.AIStoreSpec{HostpathPrefix: aisapc.Ptr("/mnt")}}
+
+	t.Run("metadata-only update is admitted with a warning", func(subT *testing.T) {
+		g := NewWithT(subT)
+		aisw := &AIStoreWebhook{}
+		ais := legacy.DeepCopy()
+		ais.Finalizers = []string{"finalize.ais"}
+
+		warnings, err := aisw.validateSpec(context.Background(), legacy, ais)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(warnings).To(HaveLen(1))
+	})
+
+	t.Run("changed spec is still validated", func(subT *testing.T) {
+		g := NewWithT(subT)
+		aisw := &AIStoreWebhook{}
+
+		_, err := aisw.validateSpec(context.Background(), legacy, &aisv1.AIStore{})
+		g.Expect(err).To(MatchError(ContainSubstring("cluster size is not specified")))
+	})
+}
+
+func TestValidateStateStorageUpdate(t *testing.T) {
+	legacyClass := func(class string) *aisv1.AIStore {
+		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{StateStorageClass: aisapc.Ptr(class)}}
+	}
+	statePVC := func(class string) *aisv1.AIStore {
+		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{
+			StateStorage: &aisv1.StateStorage{PVC: &aisv1.StatePVCConfig{StorageClass: class}},
+		}}
+	}
+
+	tests := []struct {
+		name    string
+		prev    *aisv1.AIStore
+		ais     *aisv1.AIStore
+		wantErr bool
+	}{
+		{
+			name: "moving the deprecated storage class to stateStorage is allowed",
+			prev: legacyClass("my-sc"),
+			ais:  statePVC("my-sc"),
+		},
+		{
+			name:    "changing the storage class while migrating is rejected",
+			prev:    legacyClass("my-sc"),
+			ais:     statePVC("other-sc"),
+			wantErr: true,
+		},
+		{
+			name:    "changing the storage class is rejected",
+			prev:    statePVC("my-sc"),
+			ais:     statePVC("other-sc"),
+			wantErr: true,
+		},
+		{
+			name:    "migrating from emptyDir to a pvc is rejected",
+			prev:    &aisv1.AIStore{Spec: aisv1.AIStoreSpec{StateStorage: &aisv1.StateStorage{EmptyDir: &aisv1.StateEmptyDirConfig{}}}},
+			ais:     statePVC("my-sc"),
+			wantErr: true,
+		},
+		{
+			name: "migrating from a pvc to emptyDir is allowed",
+			prev: statePVC("my-sc"),
+			ais:  &aisv1.AIStore{Spec: aisv1.AIStoreSpec{StateStorage: &aisv1.StateStorage{EmptyDir: &aisv1.StateEmptyDirConfig{}}}},
+		},
+		{
+			name: "moving the deprecated hostpath prefix to stateStorage is allowed",
+			prev: &aisv1.AIStore{Spec: aisv1.AIStoreSpec{HostpathPrefix: aisapc.Ptr("/mnt")}},
+			ais: &aisv1.AIStore{Spec: aisv1.AIStoreSpec{
+				StateStorage: &aisv1.StateStorage{HostPath: &aisv1.StateHostPathConfig{Prefix: "/mnt"}},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			err := validateStateStorageUpdate(tt.prev, tt.ais)
+			if tt.wantErr {
+				g.Expect(err).To(HaveOccurred())
+			} else {
+				g.Expect(err).ToNot(HaveOccurred())
+			}
+		})
+	}
+}
+
 func TestValidateTargetUpdateToScaleDownMode(t *testing.T) {
 	g := NewWithT(t)
 	prev := &aisv1.AIStore{}

@@ -14,19 +14,80 @@ import (
 
 func TestUsesStateEmptyDir(t *testing.T) {
 	tests := []struct {
-		name     string
-		emptyDir *StateEmptyDirConfig
-		expected bool
+		name         string
+		stateStorage *StateStorage
+		expected     bool
 	}{
-		{"nil returns false", nil, false},
-		{"set returns true", &StateEmptyDirConfig{}, true},
+		{"unset state storage returns false", nil, false},
+		{"other mode returns false", &StateStorage{HostPath: &StateHostPathConfig{Prefix: "/mnt"}}, false},
+		{"emptyDir returns true", &StateStorage{EmptyDir: &StateEmptyDirConfig{}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			RegisterTestingT(t)
 			ais := &AIStore{}
-			ais.Spec.StateStorage = &StateStorage{EmptyDir: tt.emptyDir}
+			ais.Spec.StateStorage = tt.stateStorage
 			Expect(ais.Spec.UsesStateEmptyDir()).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestStateStorageAccessors(t *testing.T) {
+	tests := []struct {
+		name           string
+		stateStorage   *StateStorage
+		hostpathPrefix *string
+		storageClass   *string
+		wantHostPath   *string
+		wantClass      *string
+	}{
+		{
+			name:         "stateStorage hostPath",
+			stateStorage: &StateStorage{HostPath: &StateHostPathConfig{Prefix: "/mnt"}},
+			wantHostPath: aisapc.Ptr("/mnt"),
+		},
+		{
+			name:         "stateStorage pvc",
+			stateStorage: &StateStorage{PVC: &StatePVCConfig{StorageClass: "my-sc"}},
+			wantClass:    aisapc.Ptr("my-sc"),
+		},
+		{
+			name:         "stateStorage emptyDir resolves to neither",
+			stateStorage: &StateStorage{EmptyDir: &StateEmptyDirConfig{}},
+		},
+		{
+			name:           "deprecated hostpathPrefix",
+			hostpathPrefix: aisapc.Ptr("/mnt"),
+			wantHostPath:   aisapc.Ptr("/mnt"),
+		},
+		{
+			name:         "deprecated stateStorageClass",
+			storageClass: aisapc.Ptr("my-sc"),
+			wantClass:    aisapc.Ptr("my-sc"),
+		},
+		{
+			name:           "deprecated stateStorageClass wins over hostpathPrefix",
+			hostpathPrefix: aisapc.Ptr("/mnt"),
+			storageClass:   aisapc.Ptr("my-sc"),
+			wantClass:      aisapc.Ptr("my-sc"),
+		},
+		{
+			name:           "stateStorage wins over deprecated options",
+			stateStorage:   &StateStorage{EmptyDir: &StateEmptyDirConfig{}},
+			hostpathPrefix: aisapc.Ptr("/mnt"),
+			storageClass:   aisapc.Ptr("my-sc"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			spec := AIStoreSpec{
+				StateStorage:      tt.stateStorage,
+				HostpathPrefix:    tt.hostpathPrefix,
+				StateStorageClass: tt.storageClass,
+			}
+			Expect(spec.StateStorageHostPathPrefix()).To(Equal(tt.wantHostPath))
+			Expect(spec.StateStoragePVCStorageClass()).To(Equal(tt.wantClass))
 		})
 	}
 }
@@ -38,7 +99,6 @@ func TestValidateStateStorage(t *testing.T) {
 		hostpathPrefix *string
 		storageClass   *string
 		wantErr        bool
-		wantWarning    bool
 	}{
 		{
 			name:         "only emptyDir is valid",
@@ -53,18 +113,6 @@ func TestValidateStateStorage(t *testing.T) {
 			stateStorage: &StateStorage{PVC: &StatePVCConfig{StorageClass: "my-sc"}},
 		},
 		{
-			name:           "stateStorage and legacy hostpathPrefix emits warning",
-			stateStorage:   &StateStorage{HostPath: &StateHostPathConfig{Prefix: "/mnt"}},
-			hostpathPrefix: aisapc.Ptr("/mnt"),
-			wantWarning:    true,
-		},
-		{
-			name:           "hostpathPrefix and stateStorageClass emits legacy warning",
-			hostpathPrefix: aisapc.Ptr("/mnt"),
-			storageClass:   aisapc.Ptr("my-sc"),
-			wantWarning:    true,
-		},
-		{
 			name:         "emptyDir and hostPath errors",
 			stateStorage: &StateStorage{EmptyDir: &StateEmptyDirConfig{}, HostPath: &StateHostPathConfig{Prefix: "/mnt"}},
 			wantErr:      true,
@@ -75,7 +123,30 @@ func TestValidateStateStorage(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name:    "none set errors",
+			name:         "hostPath and pvc errors",
+			stateStorage: &StateStorage{HostPath: &StateHostPathConfig{Prefix: "/mnt"}, PVC: &StatePVCConfig{StorageClass: "my-sc"}},
+			wantErr:      true,
+		},
+		{
+			name:         "no mode set errors",
+			stateStorage: &StateStorage{},
+			wantErr:      true,
+		},
+		{
+			name:           "deprecated hostpathPrefix alone is valid",
+			hostpathPrefix: aisapc.Ptr("/mnt"),
+		},
+		{
+			name:         "deprecated stateStorageClass alone is valid",
+			storageClass: aisapc.Ptr("my-sc"),
+		},
+		{
+			name:           "both deprecated options together are valid",
+			hostpathPrefix: aisapc.Ptr("/mnt"),
+			storageClass:   aisapc.Ptr("my-sc"),
+		},
+		{
+			name:    "no state storage at all errors",
 			wantErr: true,
 		},
 	}
@@ -92,11 +163,7 @@ func TestValidateStateStorage(t *testing.T) {
 			} else {
 				Expect(err).ToNot(HaveOccurred())
 			}
-			if tt.wantWarning {
-				Expect(warns).ToNot(BeEmpty())
-			} else {
-				Expect(warns).To(BeEmpty())
-			}
+			Expect(warns).To(BeEmpty())
 		})
 	}
 }

@@ -1834,7 +1834,8 @@ spec:
                   hosts for multi-home
                 type: object
               hostpathPrefix:
-                description: 'Deprecated: use stateStorage.hostPath.prefix.'
+                description: 'Deprecated: use stateStorage.hostPath.prefix. Rejected
+                  on create and on spec updates.'
                 type: string
               imagePullSecrets:
                 description: |-
@@ -3824,7 +3825,8 @@ spec:
                   rule: '[has(self.hostPath), has(self.pvc), has(self.emptyDir)].filter(x,
                     x).size() == 1'
               stateStorageClass:
-                description: 'Deprecated: use stateStorage.pvc.storageClass.'
+                description: 'Deprecated: use stateStorage.pvc.storageClass. Rejected
+                  on create and on spec updates.'
                 type: string
               targetSpec:
                 description: Target deployment specification.

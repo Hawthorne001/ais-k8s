@@ -299,10 +299,10 @@ type AIStoreSpec struct {
 
 	// +optional
 	StateStorage *StateStorage `json:"stateStorage,omitempty"`
-	// Deprecated: use stateStorage.hostPath.prefix.
+	// Deprecated: use stateStorage.hostPath.prefix. Rejected on create and on spec updates.
 	// +optional
 	HostpathPrefix *string `json:"hostpathPrefix,omitempty"`
-	// Deprecated: use stateStorage.pvc.storageClass.
+	// Deprecated: use stateStorage.pvc.storageClass. Rejected on create and on spec updates.
 	// +optional
 	StateStorageClass *string         `json:"stateStorageClass,omitempty"`
 	ConfigToUpdate    *ConfigToUpdate `json:"configToUpdate,omitempty"`
@@ -905,6 +905,18 @@ func (ais *AIStore) GetLogSidecarResources() *corev1.ResourceRequirements {
 		return nil
 	}
 	return ais.Spec.LogSidecar.Resources
+}
+
+// DeprecatedStateStorageMessages returns a message for each deprecated state storage option set.
+func (s *AIStoreSpec) DeprecatedStateStorageMessages() []string {
+	var msgs []string
+	if s.HostpathPrefix != nil {
+		msgs = append(msgs, "spec.hostpathPrefix is no longer accepted, use spec.stateStorage.hostPath.prefix")
+	}
+	if s.StateStorageClass != nil {
+		msgs = append(msgs, "spec.stateStorageClass is no longer accepted, use spec.stateStorage.pvc.storageClass")
+	}
+	return msgs
 }
 
 func (s *AIStoreSpec) StateStoragePVCStorageClass() *string {

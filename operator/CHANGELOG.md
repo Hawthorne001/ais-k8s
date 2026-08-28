@@ -28,6 +28,10 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - Clarified client config logging for authentication service and AIS API requests.
 - Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
 - Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
+- `stateStorageClass` and `hostpathPrefix`, deprecated in v3.0.0, are rejected on cluster creation and on any spec update.
+  - Use `stateStorage.pvc.storageClass` and `stateStorage.hostPath.prefix`, respectively.
+  - Existing clusters keep reconciling with the value they already have, and moving it to `stateStorage` does not roll pods. Migrate before editing anything else in the spec.
+  - Both options will be removed in a later release.
 
 ### Removed
 
@@ -194,7 +198,7 @@ This release will result in an AIStore cluster rollout to sync pod templates.
   - Replaces selector usage of `app` and `component`. Legacy labels remain on pods and StatefulSets for compatibility with existing selectors.
   - User labels cannot override `app.kubernetes.io/name` and `app.kubernetes.io/component`.
 - Deprecated the `capabilities` spec option, replaced with a more accurate `aisContainerSecurityContext`.
-- Deprecated the `stateStorageClass` and `hostPathPrefix` root-level spec options. Use `stateStorage.pvc.storageClass` and `stateStorage.hostPath.prefix`, respectively.
+- Deprecated the `stateStorageClass` and `hostpathPrefix` root-level spec options. Use `stateStorage.pvc.storageClass` and `stateStorage.hostPath.prefix`, respectively.
 - Updated default manager args set by the operator kustomize overlay and resulting helm chart:
   - Enable leader election by default.
   - Set explicit bind addresses for health probe and metrics.

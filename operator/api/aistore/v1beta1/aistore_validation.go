@@ -61,21 +61,10 @@ func (ais *AIStore) validateSize() (admission.Warnings, error) {
 
 func (ais *AIStore) validateStateStorage() (admission.Warnings, error) {
 	if ais.Spec.StateStorage != nil {
-		if ais.Spec.StateStorageClass != nil || ais.Spec.HostpathPrefix != nil {
-			warnings := admission.Warnings{"spec.stateStorage is set; ignoring legacy hostpathPrefix and stateStorageClass fields"}
-			if !ais.Spec.hasExactlyOneStateStorageMode() {
-				return warnings, errInvalidStateStorage()
-			}
-			return warnings, nil
-		}
 		if !ais.Spec.hasExactlyOneStateStorageMode() {
 			return nil, errInvalidStateStorage()
 		}
 		return nil, nil
-	}
-	if ais.Spec.StateStorageClass != nil && ais.Spec.HostpathPrefix != nil {
-		warning := fmt.Sprintf("Spec defines both hostpathPrefix and stateStorageClass. Using stateStorageClass %s", *ais.Spec.StateStorageClass)
-		return admission.Warnings{warning}, nil
 	}
 	if ais.Spec.StateStorageClass == nil && ais.Spec.HostpathPrefix == nil {
 		return nil, errUndefinedStateStorage()
@@ -154,22 +143,7 @@ func (ais *AIStore) validateAuth() (admission.Warnings, error) {
 
 // validateDeprecatedFields warns on spec fields that are slated for removal.
 func (ais *AIStore) validateDeprecatedFields() (admission.Warnings, error) {
-	deprecated := []struct {
-		inUse       bool
-		field       string
-		replacement string
-	}{
-		{ais.Spec.HostpathPrefix != nil, "spec.hostpathPrefix", "spec.stateStorage.hostPath.prefix"},
-		{ais.Spec.StateStorageClass != nil, "spec.stateStorageClass", "spec.stateStorage.pvc.storageClass"},
-	}
-
-	var warnings admission.Warnings
-	for _, d := range deprecated {
-		if d.inUse {
-			warnings = append(warnings, fmt.Sprintf("%s is deprecated and will be removed in a future release; use %s instead", d.field, d.replacement))
-		}
-	}
-	return warnings, nil
+	return ais.Spec.DeprecatedStateStorageMessages(), nil
 }
 
 func (ss *ServiceSpec) validate(path *field.Path) field.ErrorList {
@@ -262,7 +236,7 @@ func errUndefinedStateStorage() error {
 }
 
 func errInvalidStateStorage() error {
-	return fmt.Errorf("AIS spec stateStorage must define exactly one of hostPath, pvc, or emptyDir")
+	return fmt.Errorf("AIStore spec.stateStorage must define exactly one of hostPath, pvc, or emptyDir")
 }
 
 func errUndefinedNodeSelector(spec string) error {

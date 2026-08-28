@@ -227,9 +227,14 @@ var _ = Describe("AIStore", func() {
 					"invalid cluster size -2, should be at least 1 or -1 for autoScaling",
 				),
 				Entry(
-					"stateStorage empty",
+					"stateStorage unset",
 					AIStore{Spec: AIStoreSpec{Size: aisapc.Ptr[int32](1)}},
 					"AIS spec does not define stateStorage",
+				),
+				Entry(
+					"stateStorage without a mode",
+					AIStore{Spec: AIStoreSpec{Size: aisapc.Ptr[int32](1), StateStorage: &StateStorage{}}},
+					"stateStorage must define exactly one of hostPath, pvc, or emptyDir",
 				),
 				Entry(
 					"invalid proxy serviceSpec",
