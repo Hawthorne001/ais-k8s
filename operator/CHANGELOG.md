@@ -26,6 +26,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - OAuth password-grant tokens are no longer treated as expired when the provider omits `expires_in`.
 - Tokens with a lifetime at or below the default 5 minute refresh margin are no longer refreshed on every reconcile.
 - Clarified client config logging for authentication service and AIS API requests.
+- Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
 
 ### Removed
 
