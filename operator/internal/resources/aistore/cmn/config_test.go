@@ -107,6 +107,110 @@ var _ = Describe("Config", Label("short"), func() {
 			Expect(conf.Net).To(BeNil())
 		})
 
+		DescribeTable("should build the auth config",
+			func(spec aisv1.AIStoreSpec, want *aiscmn.AuthConfToSet) {
+				ais := &aisv1.AIStore{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"},
+					Spec:       spec,
+				}
+				conf, err := GenerateConfigToSet(ais)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(conf.Auth).To(Equal(want))
+			},
+			Entry("no auth options, including the issuer CA",
+				aisv1.AIStoreSpec{IssuerCAConfigMap: aisapc.Ptr("issuer-ca")},
+				nil,
+			),
+			Entry("auth enabled with an issuer CA",
+				aisv1.AIStoreSpec{
+					IssuerCAConfigMap: aisapc.Ptr("issuer-ca"),
+					ConfigToUpdate: &aisv1.ConfigToUpdate{
+						Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(true)},
+					},
+				},
+				&aiscmn.AuthConfToSet{
+					ClientAuthRequired: aisapc.Ptr(true),
+					OIDC:               &aiscmn.OIDCConfToSet{IssuerCA: aisapc.Ptr("/etc/ais/oidc-ca/ca.crt")},
+				},
+			),
+			Entry("hmac secret alone",
+				aisv1.AIStoreSpec{AuthNSecretName: aisapc.Ptr("hmac-secret")},
+				&aiscmn.AuthConfToSet{
+					Signature: &aiscmn.AuthSignatureConfToSet{Method: aisapc.Ptr(aisv1.SigningKeyMethodHMAC)},
+				},
+			),
+			Entry("hmac secret with auth enabled",
+				aisv1.AIStoreSpec{
+					AuthNSecretName: aisapc.Ptr("hmac-secret"),
+					ConfigToUpdate: &aisv1.ConfigToUpdate{
+						Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(true)},
+					},
+				},
+				&aiscmn.AuthConfToSet{
+					ClientAuthRequired: aisapc.Ptr(true),
+					Signature:          &aiscmn.AuthSignatureConfToSet{Method: aisapc.Ptr(aisv1.SigningKeyMethodHMAC)},
+				},
+			),
+			Entry("hmac secret with auth disabled",
+				aisv1.AIStoreSpec{
+					AuthNSecretName: aisapc.Ptr("hmac-secret"),
+					ConfigToUpdate: &aisv1.ConfigToUpdate{
+						Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(false)},
+					},
+				},
+				&aiscmn.AuthConfToSet{
+					ClientAuthRequired: aisapc.Ptr(false),
+					Signature:          &aiscmn.AuthSignatureConfToSet{Method: aisapc.Ptr(aisv1.SigningKeyMethodHMAC)},
+				},
+			),
+			// The signing key is expected to reach AIS through the authN secret, never through the spec,
+			// but AIS rejects a key with no method so the operator must still fill the method in.
+			Entry("hmac secret with a signature key in the config",
+				aisv1.AIStoreSpec{
+					AuthNSecretName: aisapc.Ptr("hmac-secret"),
+					ConfigToUpdate: &aisv1.ConfigToUpdate{
+						Auth: &aisv1.AuthConfToUpdate{
+							Signature: &aisv1.AuthSignatureConfToUpdate{Key: aisapc.Ptr("unexpected-key")},
+						},
+					},
+				},
+				&aiscmn.AuthConfToSet{
+					Signature: &aiscmn.AuthSignatureConfToSet{
+						Key:    aisapc.Ptr("unexpected-key"),
+						Method: aisapc.Ptr(aisv1.SigningKeyMethodHMAC),
+					},
+				},
+			),
+			Entry("hmac secret with an explicit signature method",
+				aisv1.AIStoreSpec{
+					AuthNSecretName: aisapc.Ptr("hmac-secret"),
+					ConfigToUpdate: &aisv1.ConfigToUpdate{
+						Auth: &aisv1.AuthConfToUpdate{
+							Signature: &aisv1.AuthSignatureConfToUpdate{Method: aisapc.Ptr("RSA")},
+						},
+					},
+				},
+				&aiscmn.AuthConfToSet{
+					Signature: &aiscmn.AuthSignatureConfToSet{Method: aisapc.Ptr("RSA")},
+				},
+			),
+			Entry("hmac secret with OIDC issuers",
+				aisv1.AIStoreSpec{
+					AuthNSecretName: aisapc.Ptr("hmac-secret"),
+					ConfigToUpdate: &aisv1.ConfigToUpdate{
+						Auth: &aisv1.AuthConfToUpdate{
+							OIDC: &aisv1.OIDCConfToUpdate{
+								AllowedIssuers: aisapc.Ptr([]string{"https://issuer.example.com"}),
+							},
+						},
+					},
+				},
+				&aiscmn.AuthConfToSet{
+					OIDC: &aiscmn.OIDCConfToSet{AllowedIssuers: aisapc.Ptr([]string{"https://issuer.example.com"})},
+				},
+			),
+		)
+
 		It("should generate initial config without an error", func() {
 			const (
 				clusterName = "ais-cluster"

@@ -28,6 +28,16 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - Clarified client config logging for authentication service and AIS API requests.
 - Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
 - Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
+
+- Changes to AIStore client authentication config
+  - Setting `spec.authNSecretName` sets the AIStore auth config to use the HMAC signing method when no signing method is configured.
+    - This sets `spec.configToUpdate.auth.signature.method: HMAC`
+    - The webhook now rejects `spec.authNSecretName` alongside allowed OIDC issuers in `spec.configToUpdate`.
+  - Setting `spec.auth` to configure operator token provisioning no longer implicitly enables AIS client auth.
+  - No spec option outside of `configToUpdate` enables AIStore to enforce valid tokens with all client requests.  
+    - Set `spec.configToUpdate.auth.enabled` for AIStore versions before v5.0.0.
+    - Set `spec.configToUpdate.auth.client_auth_required` for AIStore versions v5.0.0 and newer.
+
 - `stateStorageClass` and `hostpathPrefix`, deprecated in v3.0.0, are rejected on cluster creation and on any spec update.
   - Use `stateStorage.pvc.storageClass` and `stateStorage.hostPath.prefix`, respectively.
   - Existing clusters keep reconciling with the value they already have, and moving it to `stateStorage` does not roll pods. Migrate before editing anything else in the spec.

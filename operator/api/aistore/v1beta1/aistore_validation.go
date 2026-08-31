@@ -28,6 +28,7 @@ func (ais *AIStore) ValidateSpec(_ context.Context) (admission.Warnings, error) 
 		ais.validateCleanupConfig,
 		ais.validateTLSCertPaths,
 		ais.validateSafeDecommission,
+		ais.validateAuthConfig,
 		ais.validateAuth,
 	}
 
@@ -126,19 +127,30 @@ func (ais *AIStore) validateSafeDecommission() (admission.Warnings, error) {
 	return nil, nil
 }
 
-// validateAuth rejects invalid spec.auth, including specs where the cluster expects authenticated API calls
-// but the operator has no configuration from which to obtain a token.
+// validateAuth rejects specs where AIS expects authenticated API calls but the operator has no
+// configuration from which to obtain a token, and warns on the reverse mismatch.
 func (ais *AIStore) validateAuth() (admission.Warnings, error) {
 	if ais.GetAuthProfileRef() != nil {
+		if !ais.Spec.ConfigToUpdate.RequiresClientAuth() {
+			return admission.Warnings{"spec.auth.profileRef is set but AIS is not configured to authenticate client requests"}, nil
+		}
 		return nil, nil
 	}
 	if ais.Spec.Auth != nil {
 		return nil, fmt.Errorf("spec.auth is empty; set spec.auth.profileRef")
 	}
-	if !ais.Spec.ConfigToUpdate.AuthEnabled() {
+	if !ais.Spec.ConfigToUpdate.RequiresClientAuth() {
 		return nil, nil
 	}
-	return nil, fmt.Errorf("spec.configToUpdate.auth.enabled requires the operator to authenticate its API calls; set spec.auth.profileRef")
+	return nil, fmt.Errorf("provided spec configures AIS to authenticate client requests; set spec.auth.profileRef")
+}
+
+// validateAuthConfig rejects specs that contain incompatible AIS spec and config options for authentication
+func (ais *AIStore) validateAuthConfig() (admission.Warnings, error) {
+	if ais.Spec.AuthNSecretName != nil && ais.Spec.ConfigToUpdate.HasOIDCIssuers() {
+		return nil, fmt.Errorf("spec.authNSecretName defines an HMAC signing secret and is incompatible with configured OIDC issuers in spec.configToUpdate")
+	}
+	return nil, nil
 }
 
 // validateDeprecatedFields warns on spec fields that are slated for removal.

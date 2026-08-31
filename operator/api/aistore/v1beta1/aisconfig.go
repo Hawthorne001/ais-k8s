@@ -10,6 +10,8 @@ import (
 	aiscos "github.com/NVIDIA/aistore/cmn/cos"
 )
 
+const SigningKeyMethodHMAC = "HMAC"
+
 // NOTE: `*ToUpdate` structures are duplicates of `*ToUpdate` structs from AIStore main repository.
 // For custom types used in CRDs, `kubebuilder` auto-generates the `DeepCopyInto` method,
 // which isn't possible for types from external packages.
@@ -312,8 +314,8 @@ func (c *ConfigToUpdate) IsRebalanceEnabledSet() bool {
 	return c.Rebalance.Enabled != nil
 }
 
-// AuthEnabled reports whether the spec explicitly enables AIS token authentication.
-func (c *ConfigToUpdate) AuthEnabled() bool {
+// RequiresClientAuth reports whether the AIS config requires authenticated client requests.
+func (c *ConfigToUpdate) RequiresClientAuth() bool {
 	if c == nil || c.Auth == nil || c.Auth.Enabled == nil {
 		return false
 	}
@@ -356,26 +358,35 @@ func (c *ConfigToUpdate) ConfigureBackend(spec *AIStoreSpec) {
 	}
 }
 
-func (c *ConfigToUpdate) ConfigureAuth(authSpec *AuthSpec, issuerCAPath string) {
-	if authSpec == nil {
-		return
-	}
-
+func (c *ConfigToUpdate) EnsureHMACSignature() {
 	if c.Auth == nil {
 		c.Auth = &AuthConfToUpdate{}
 	}
-	// Default to enabled if not explicitly set by the user
-	if c.Auth.Enabled == nil {
-		c.Auth.Enabled = aisapc.Ptr(true)
+	if c.Auth.Signature == nil {
+		// Associated Signature.Key is parsed via environment variable
+		c.Auth.Signature = &AuthSignatureConfToUpdate{}
 	}
+	// AIS rejects a signature key without a method
+	if c.Auth.Signature.Method == nil {
+		c.Auth.Signature.Method = aisapc.Ptr(SigningKeyMethodHMAC)
+	}
+}
 
-	// Auto-configure OIDC issuer CA bundle if path is provided
-	if issuerCAPath != "" {
-		if c.Auth.OIDC == nil {
-			c.Auth.OIDC = &OIDCConfToUpdate{}
-		}
-		c.Auth.OIDC.IssuerCA = &issuerCAPath
+func (c *ConfigToUpdate) HasOIDCIssuers() bool {
+	if c == nil || c.Auth == nil || c.Auth.OIDC == nil || c.Auth.OIDC.AllowedIssuers == nil {
+		return false
 	}
+	return len(*c.Auth.OIDC.AllowedIssuers) > 0
+}
+
+func (c *ConfigToUpdate) ConfigureOIDCIssuer(issuerCAPath string) {
+	if c.Auth == nil {
+		c.Auth = &AuthConfToUpdate{}
+	}
+	if c.Auth.OIDC == nil {
+		c.Auth.OIDC = &OIDCConfToUpdate{}
+	}
+	c.Auth.OIDC.IssuerCA = &issuerCAPath
 }
 
 func (c *ConfigToUpdate) Convert() (toUpdate *aiscmn.ConfigToSet, err error) {

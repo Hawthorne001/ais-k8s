@@ -316,11 +316,96 @@ func TestValidateSafeDecommission(t *testing.T) {
 	}
 }
 
-func newAuthAIS(auth *AuthSpec, conf *ConfigToUpdate) *AIStore {
+func newAuthAIS(auth *AuthSpec, conf *ConfigToUpdate, authNSecret *string) *AIStore {
 	ais := &AIStore{}
 	ais.Spec.Auth = auth
 	ais.Spec.ConfigToUpdate = conf
+	ais.Spec.AuthNSecretName = authNSecret
 	return ais
+}
+
+func TestConfigToUpdateRequiresClientAuth(t *testing.T) {
+	tests := []struct {
+		name string
+		conf *ConfigToUpdate
+		want bool
+	}{
+		{name: "nil config"},
+		{name: "no auth section", conf: &ConfigToUpdate{}},
+		{name: "auth section without enabled", conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{}}},
+		{
+			name: "signing method without enabled",
+			conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{
+				Signature: &AuthSignatureConfToUpdate{Method: aisapc.Ptr(SigningKeyMethodHMAC)},
+			}},
+		},
+		{
+			name: "auth explicitly disabled",
+			conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{Enabled: aisapc.Ptr(false)}},
+		},
+		{
+			name: "auth explicitly enabled",
+			conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{Enabled: aisapc.Ptr(true)}},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			g.Expect(tt.conf.RequiresClientAuth()).To(Equal(tt.want))
+		})
+	}
+}
+
+// TestValidateAuthConfig covers the spec and config combinations that cannot be applied together,
+// including the OIDC options that coexist with an HMAC secret.
+func TestValidateAuthConfig(t *testing.T) {
+	var (
+		secret  = aisapc.Ptr("hmac-secret")
+		issuers = &ConfigToUpdate{Auth: &AuthConfToUpdate{
+			OIDC: &OIDCConfToUpdate{AllowedIssuers: aisapc.Ptr([]string{"https://issuer.example.com"})},
+		}}
+		emptyIssuers = &ConfigToUpdate{Auth: &AuthConfToUpdate{
+			OIDC: &OIDCConfToUpdate{AllowedIssuers: aisapc.Ptr([]string{})},
+		}}
+		issuerCA = &ConfigToUpdate{Auth: &AuthConfToUpdate{
+			OIDC: &OIDCConfToUpdate{IssuerCA: aisapc.Ptr("/etc/ais/oidc-ca/ca.crt")},
+		}}
+	)
+	tests := []struct {
+		name        string
+		conf        *ConfigToUpdate
+		authNSecret *string
+		// wantErrMsgs are substrings the rejection must name
+		wantErrMsgs []string
+	}{
+		{name: "no auth configuration"},
+		{name: "hmac secret without config", authNSecret: secret},
+		{name: "hmac secret with auth enabled", conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{Enabled: aisapc.Ptr(true)}}, authNSecret: secret},
+		{name: "hmac secret with an OIDC issuer CA", conf: issuerCA, authNSecret: secret},
+		{name: "hmac secret with empty allowed issuers", conf: emptyIssuers, authNSecret: secret},
+		{name: "OIDC issuers without an hmac secret", conf: issuers},
+		{
+			name:        "hmac secret with OIDC issuers",
+			conf:        issuers,
+			authNSecret: secret,
+			wantErrMsgs: []string{"spec.authNSecretName", "OIDC issuers"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			warnings, err := newAuthAIS(nil, tt.conf, tt.authNSecret).validateAuthConfig()
+			g.Expect(warnings).To(BeEmpty())
+			if len(tt.wantErrMsgs) == 0 {
+				g.Expect(err).NotTo(HaveOccurred())
+				return
+			}
+			for _, msg := range tt.wantErrMsgs {
+				g.Expect(err).To(MatchError(ContainSubstring(msg)))
+			}
+		})
+	}
 }
 
 func TestValidateAuth(t *testing.T) {
@@ -330,18 +415,22 @@ func TestValidateAuth(t *testing.T) {
 		profile      = &AuthSpec{ProfileRef: &AuthProfileRef{Name: "provider"}}
 	)
 	tests := []struct {
-		name string
-		auth *AuthSpec
-		conf *ConfigToUpdate
+		name        string
+		auth        *AuthSpec
+		conf        *ConfigToUpdate
+		authNSecret *string
 		// wantErrMsgs are substrings the rejection must name
 		wantErrMsgs []string
+		wantWarn    bool
 	}{
 		{name: "no auth configuration"},
 		{name: "auth section without enabled", conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{}}},
 		{name: "auth explicitly disabled", conf: authDisabled},
-		{name: "profileRef alone", auth: profile},
-		{name: "profileRef with auth disabled", auth: profile, conf: authDisabled},
+		{name: "profileRef alone", auth: profile, wantWarn: true},
+		{name: "profileRef with auth disabled", auth: profile, conf: authDisabled, wantWarn: true},
+		{name: "profileRef with auth section but no enabled", auth: profile, conf: &ConfigToUpdate{Auth: &AuthConfToUpdate{}}, wantWarn: true},
 		{name: "profileRef with auth enabled", auth: profile, conf: authEnabled},
+		{name: "profileRef with hmac secret", auth: profile, authNSecret: aisapc.Ptr("hmac-secret"), wantWarn: true},
 		{
 			name:        "spec.auth without profileRef",
 			auth:        &AuthSpec{},
@@ -356,14 +445,31 @@ func TestValidateAuth(t *testing.T) {
 		{
 			name:        "auth enabled without spec.auth",
 			conf:        authEnabled,
-			wantErrMsgs: []string{"spec.configToUpdate.auth.enabled", "spec.auth.profileRef"},
+			wantErrMsgs: []string{"configures AIS to authenticate client requests", "spec.auth.profileRef"},
+		},
+		{name: "hmac secret without spec.auth", authNSecret: aisapc.Ptr("hmac-secret")},
+		{
+			name:        "hmac secret with auth disabled and without spec.auth",
+			conf:        authDisabled,
+			authNSecret: aisapc.Ptr("hmac-secret"),
+		},
+		{
+			name:        "hmac secret with auth enabled and without spec.auth",
+			conf:        authEnabled,
+			authNSecret: aisapc.Ptr("hmac-secret"),
+			wantErrMsgs: []string{"configures AIS to authenticate client requests", "spec.auth.profileRef"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(subT *testing.T) {
 			g := NewWithT(subT)
-			warnings, err := newAuthAIS(tt.auth, tt.conf).validateAuth()
-			g.Expect(warnings).To(BeEmpty())
+			warnings, err := newAuthAIS(tt.auth, tt.conf, tt.authNSecret).validateAuth()
+			if tt.wantWarn {
+				g.Expect(warnings).To(HaveLen(1))
+				g.Expect(warnings[0]).To(ContainSubstring("not configured to authenticate client requests"))
+			} else {
+				g.Expect(warnings).To(BeEmpty())
+			}
 			if len(tt.wantErrMsgs) == 0 {
 				g.Expect(err).NotTo(HaveOccurred())
 				return

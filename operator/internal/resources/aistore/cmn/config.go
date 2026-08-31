@@ -84,14 +84,23 @@ func GenerateConfigToSet(ais *aisv1.AIStore) (*aiscmn.ConfigToSet, error) {
 		specConfig.ConfigureBackend(&ais.Spec)
 	}
 
-	// Build OIDC issuer CA path from constants if ConfigMap is specified
-	var issuerCAPath string
-	if ais.Spec.IssuerCAConfigMap != nil {
-		issuerCAPath = filepath.Join(OIDCCAMountPath, OIDCCAFileName)
-	}
-	specConfig.ConfigureAuth(ais.Spec.Auth, issuerCAPath)
+	buildSpecConfigAuth(ais, specConfig)
 
 	return specConfig.Convert()
+}
+
+func buildSpecConfigAuth(ais *aisv1.AIStore, specConfig *aisv1.ConfigToUpdate) {
+	if ais.Spec.AuthNSecretName != nil && !specConfig.HasOIDCIssuers() {
+		specConfig.EnsureHMACSignature()
+	}
+	// AIStore is not configured to use auth in any way
+	if specConfig.Auth == nil {
+		return
+	}
+	// Build OIDC issuer CA path from constants if ConfigMap is specified
+	if ais.Spec.IssuerCAConfigMap != nil {
+		specConfig.ConfigureOIDCIssuer(filepath.Join(OIDCCAMountPath, OIDCCAFileName))
+	}
 }
 
 func HashGlobalConfig(c *aiscmn.ConfigToSet) (string, error) {
@@ -103,7 +112,7 @@ func HashGlobalConfig(c *aiscmn.ConfigToSet) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// Generates a hash of ONLY configs that should trigger cluster restart upon change
+// HashRestartConfigs generates a hash of ONLY configs that should trigger cluster restart upon change
 func HashRestartConfigs(c *aiscmn.ConfigToSet) (string, error) {
 	checksum := sha256.Sum256([]byte{})
 	if c.Net != nil && c.Net.HTTP != nil {
