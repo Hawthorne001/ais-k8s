@@ -12,7 +12,7 @@ import (
 
 const SigningKeyMethodHMAC = "HMAC"
 
-// NOTE: `*ToUpdate` structures are duplicates of `*ToUpdate` structs from AIStore main repository.
+// NOTE: `*ToUpdate` structures are duplicates of `*ToSet` structs from AIStore main repository.
 // For custom types used in CRDs, `kubebuilder` auto-generates the `DeepCopyInto` method,
 // which isn't possible for types from external packages.
 // IMPORTANT: Run "make generate" and "make manifests" to regenerate code after modifying this file
@@ -47,6 +47,7 @@ type (
 		TCB         *TCBConfToUpdate         `json:"tcb,omitempty"`
 		TCO         *TCOConfToUpdate         `json:"tco,omitempty"`
 		Arch        *ArchConfToUpdate        `json:"arch,omitempty"`
+		Lso         *LsoConfToUpdate         `json:"lso,omitempty"`
 		WritePolicy *WritePolicyConfToUpdate `json:"write_policy,omitempty"`
 		Proxy       *ProxyConfToUpdate       `json:"proxy,omitempty"`
 		RateLimit   *RateLimitConfToUpdate   `json:"rate_limit,omitempty"`
@@ -125,7 +126,6 @@ type (
 		PrimaryURL   *string `json:"primary_url,omitempty"`
 		OriginalURL  *string `json:"original_url,omitempty"`
 		DiscoveryURL *string `json:"discovery_url,omitempty"`
-		NonElectable *bool   `json:"non_electable,omitempty"`
 	}
 	SpaceConfToUpdate struct {
 		//+kubebuilder:validation:Minimum=0
@@ -140,7 +140,7 @@ type (
 		//+kubebuilder:validation:Minimum=0
 		//+kubebuilder:validation:Maximum=100
 		OOS             *int64    `json:"out_of_space,omitempty"`
-		BatchSize       int64     `json:"batch_size,omitempty"`
+		BatchSize       *int64    `json:"batch_size,omitempty"`
 		DontCleanupTime *Duration `json:"dont_cleanup_time,omitempty"`
 	}
 	LRUConfToUpdate struct {
@@ -178,23 +178,34 @@ type (
 		Sync            *bool `json:"synchronize,omitempty"`
 	}
 	NetConfToUpdate struct {
-		HTTP *HTTPConfToUpdate `json:"http,omitempty"`
+		HTTP    *HTTPConfToUpdate `json:"http,omitempty"`
+		UseIPv6 *bool             `json:"use_ipv6,omitempty"`
+	}
+
+	TLSConfToUpdate struct {
+		Certificate   *string `json:"server_crt,omitempty"`
+		CertKey       *string `json:"server_key,omitempty"`
+		ClientCA      *string `json:"client_ca_tls,omitempty"`
+		ClientAuthTLS *int    `json:"client_auth_tls,omitempty"`
 	}
 
 	HTTPConfToUpdate struct {
-		Certificate         *string   `json:"server_crt,omitempty"`
-		CertKey             *string   `json:"server_key,omitempty"`
-		ServerNameTLS       *string   `json:"domain_tls,omitempty"`
-		ClientCA            *string   `json:"client_ca_tls,omitempty"`
-		IdleConnTimeout     *Duration `json:"idle_conn_time,omitempty"`
-		MaxIdleConnsPerHost *int      `json:"idle_conns_per_host,omitempty"`
-		MaxIdleConns        *int      `json:"idle_conns,omitempty"`
-		WriteBufferSize     *int      `json:"write_buffer_size,omitempty" list:"readonly"`
-		ReadBufferSize      *int      `json:"read_buffer_size,omitempty" list:"readonly"`
-		ClientAuthTLS       *int      `json:"client_auth_tls,omitempty"`
-		UseHTTPS            *bool     `json:"use_https,omitempty"`
-		SkipVerifyCrt       *bool     `json:"skip_verify,omitempty"`
-		Chunked             *bool     `json:"chunked_transfer,omitempty"`
+		Certificate            *string   `json:"server_crt,omitempty"`
+		CertKey                *string   `json:"server_key,omitempty"`
+		ServerNameTLS          *string   `json:"domain_tls,omitempty"`
+		ClientCA               *string   `json:"client_ca_tls,omitempty"`
+		IdleConnTimeout        *Duration `json:"idle_conn_time,omitempty"`
+		BackendIdleConnTimeout *Duration `json:"backend_idle_conn_time,omitempty"`
+		MaxIdleConnsPerHost    *int      `json:"idle_conns_per_host,omitempty"`
+		MaxIdleConns           *int      `json:"idle_conns,omitempty"`
+		WriteBufferSize        *int      `json:"write_buffer_size,omitempty" list:"readonly"`
+		ReadBufferSize         *int      `json:"read_buffer_size,omitempty" list:"readonly"`
+		ClientAuthTLS          *int      `json:"client_auth_tls,omitempty"`
+		UseHTTPS               *bool     `json:"use_https,omitempty"`
+		SkipVerifyCrt          *bool     `json:"skip_verify,omitempty"`
+		Chunked                *bool     `json:"chunked_transfer,omitempty"`
+		// Optional TLS overrides for public listeners.
+		Pub *TLSConfToUpdate `json:"pub,omitempty"`
 	}
 	FSHCConfToUpdate struct {
 		TestFileCount *int      `json:"test_files,omitempty"`
@@ -207,8 +218,8 @@ type (
 		ObjSizeLimit      *SizeIEC `json:"objsize_limit,omitempty"`
 		MaxMonolithicSize *SizeIEC `json:"max_monolithic_size,omitempty"`
 		ChunkSize         *SizeIEC `json:"chunk_size,omitempty"`
-		CheckpointEvery   int      `json:"checkpoint_every,omitempty"`
-		Flags             uint64   `json:"flags,omitempty"`
+		CheckpointEvery   *int     `json:"checkpoint_every,omitempty"`
+		Flags             *uint64  `json:"flags,omitempty"`
 	}
 	AuthConfToUpdate struct {
 		// Deprecated: use ClientAuthRequired.
@@ -280,7 +291,7 @@ type (
 		Burst            *int      `json:"burst_buffer,omitempty" list:"readonly"`
 		IdleTeardown     *Duration `json:"idle_teardown,omitempty"`
 		QuiesceTime      *Duration `json:"quiescent,omitempty"`
-		LZ4BlockMaxSize  *int      `json:"lz4_block,omitempty"`
+		LZ4BlockMaxSize  *SizeIEC  `json:"lz4_block,omitempty"`
 		LZ4FrameChecksum *bool     `json:"lz4_frame_checksum,omitempty"`
 	}
 	MemsysConfToUpdate struct {
@@ -299,6 +310,12 @@ type (
 	}
 	ArchConfToUpdate struct {
 		XactConfToUpdate `json:",inline"`
+	}
+	LsoConfToUpdate struct {
+		XactConfToUpdate `json:",inline"`
+		WalkBuffer       *int      `json:"walk_buffer,omitempty"`
+		IdleTime         *Duration `json:"idle_time,omitempty"`
+		QuiesceTime      *Duration `json:"quiescent,omitempty"`
 	}
 	WritePolicyConfToUpdate struct {
 		Data *string `json:"data,omitempty"`

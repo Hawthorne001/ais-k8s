@@ -29,6 +29,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - Clarified client config logging for authentication service and AIS API requests.
 - Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
 - Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
+- Updated all `spec.configToUpdate` fields to match AIStore v5.0.0 config.
 
 - Changes to AIStore client authentication config
   - `auth.enabled` is deprecated in favor of `auth.client_auth_required`.

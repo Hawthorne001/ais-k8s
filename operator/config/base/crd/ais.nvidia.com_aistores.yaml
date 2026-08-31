@@ -1600,6 +1600,21 @@ spec:
                       enabled:
                         type: boolean
                     type: object
+                  lso:
+                    properties:
+                      bundle_multiplier:
+                        type: integer
+                      burst_buffer:
+                        type: integer
+                      compression:
+                        type: string
+                      idle_time:
+                        type: string
+                      quiescent:
+                        type: string
+                      walk_buffer:
+                        type: integer
+                    type: object
                   memsys:
                     properties:
                       default_buf:
@@ -1629,6 +1644,8 @@ spec:
                     properties:
                       http:
                         properties:
+                          backend_idle_conn_time:
+                            type: string
                           chunked_transfer:
                             type: boolean
                           client_auth_tls:
@@ -1643,6 +1660,18 @@ spec:
                             type: integer
                           idle_conns_per_host:
                             type: integer
+                          pub:
+                            description: Optional TLS overrides for public listeners.
+                            properties:
+                              client_auth_tls:
+                                type: integer
+                              client_ca_tls:
+                                type: string
+                              server_crt:
+                                type: string
+                              server_key:
+                                type: string
+                            type: object
                           read_buffer_size:
                             type: integer
                           server_crt:
@@ -1656,6 +1685,8 @@ spec:
                           write_buffer_size:
                             type: integer
                         type: object
+                      use_ipv6:
+                        type: boolean
                     type: object
                   periodic:
                     properties:
@@ -1670,8 +1701,6 @@ spec:
                     properties:
                       discovery_url:
                         type: string
-                      non_electable:
-                        type: boolean
                       original_url:
                         type: string
                       primary_url:
@@ -1823,7 +1852,7 @@ spec:
                       idle_teardown:
                         type: string
                       lz4_block:
-                        type: integer
+                        type: string
                       lz4_frame_checksum:
                         type: boolean
                       max_header:

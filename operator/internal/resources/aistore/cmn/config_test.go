@@ -64,8 +64,23 @@ var _ = Describe("Config", Label("short"), func() {
 			Expect(clusterCfg.Tracing.ExporterAuth.TokenFile).To(Equal("token-file"))
 		})
 
-		It("should convert the auth options added in AIS v5.0", func() {
+		It("should convert the config options added in AIS v5.0", func() {
 			toUpdate := &aisv1.ConfigToUpdate{
+				Lso: &aisv1.LsoConfToUpdate{
+					WalkBuffer:  aisapc.Ptr(2048),
+					IdleTime:    (*aisv1.Duration)(aisapc.Ptr[int64](10)),
+					QuiesceTime: (*aisv1.Duration)(aisapc.Ptr[int64](20)),
+				},
+				Net: &aisv1.NetConfToUpdate{
+					UseIPv6: aisapc.Ptr(true),
+					HTTP: &aisv1.HTTPConfToUpdate{
+						BackendIdleConnTimeout: (*aisv1.Duration)(aisapc.Ptr[int64](30)),
+						Pub: &aisv1.TLSConfToUpdate{
+							Certificate: aisapc.Ptr("/var/certs/pub.crt"),
+							CertKey:     aisapc.Ptr("/var/certs/pub.key"),
+						},
+					},
+				},
 				Auth: &aisv1.AuthConfToUpdate{
 					ClientAuthRequired: aisapc.Ptr(true),
 					OIDC: &aisv1.OIDCConfToUpdate{
@@ -79,16 +94,32 @@ var _ = Describe("Config", Label("short"), func() {
 						RequestAuth:        aisapc.Ptr(true),
 					},
 				},
+				Transport: &aisv1.TransportConfToUpdate{
+					LZ4BlockMaxSize: (*aisv1.SizeIEC)(aisapc.Ptr[int64](262144)),
+				},
+				Space:  &aisv1.SpaceConfToUpdate{BatchSize: aisapc.Ptr[int64](1024)},
+				Chunks: &aisv1.ChunksConfToUpdate{CheckpointEvery: aisapc.Ptr(8), Flags: aisapc.Ptr[uint64](1)},
 			}
 
 			toSet, err := toUpdate.Convert()
 			Expect(err).ToNot(HaveOccurred())
 
+			Expect(*toSet.Lso.WalkBuffer).To(BeEquivalentTo(2048))
+			Expect(*toSet.Lso.IdleTime).To(BeEquivalentTo(10))
+			Expect(*toSet.Lso.QuiesceTime).To(BeEquivalentTo(20))
+			Expect(*toSet.Net.UseIPv6).To(BeTrue())
+			Expect(*toSet.Net.HTTP.BackendIdleConnTimeout).To(BeEquivalentTo(30))
+			Expect(*toSet.Net.HTTP.Pub.Certificate).To(Equal("/var/certs/pub.crt"))
+			Expect(*toSet.Net.HTTP.Pub.CertKey).To(Equal("/var/certs/pub.key"))
 			Expect(*toSet.Auth.ClientAuthRequired).To(BeTrue())
 			Expect(*toSet.Auth.OIDC.JWKSCacheConf.MinRotationRefresh).To(BeEquivalentTo(40))
 			Expect(*toSet.Auth.OIDC.JWKSCacheConf.MinBackgroundRefresh).To(BeEquivalentTo(50))
 			Expect(*toSet.Auth.IntraCluster.NodeJoinSecretPath).To(Equal("/var/secrets/node-join"))
 			Expect(*toSet.Auth.IntraCluster.RequestAuth).To(BeTrue())
+			Expect(*toSet.Transport.LZ4BlockMaxSize).To(BeEquivalentTo(262144))
+			Expect(*toSet.Space.BatchSize).To(BeEquivalentTo(1024))
+			Expect(*toSet.Chunks.CheckpointEvery).To(BeEquivalentTo(8))
+			Expect(*toSet.Chunks.Flags).To(BeEquivalentTo(1))
 		})
 
 		It("should map the deprecated auth options onto their replacements", func() {
