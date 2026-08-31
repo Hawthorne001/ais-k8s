@@ -211,11 +211,15 @@ type (
 		Flags             uint64   `json:"flags,omitempty"`
 	}
 	AuthConfToUpdate struct {
-		Enabled        *bool                       `json:"enabled,omitempty"`
-		Signature      *AuthSignatureConfToUpdate  `json:"signature,omitempty"`
-		RequiredClaims *RequiredClaimsConfToUpdate `json:"required_claims,omitempty"`
-		OIDC           *OIDCConfToUpdate           `json:"oidc,omitempty"`
-		ClusterKey     *ClusterKeyConfToUpdate     `json:"cluster_key,omitempty"`
+		// Deprecated: use ClientAuthRequired.
+		Enabled            *bool                       `json:"enabled,omitempty"`
+		ClientAuthRequired *bool                       `json:"client_auth_required,omitempty"`
+		Signature          *AuthSignatureConfToUpdate  `json:"signature,omitempty"`
+		RequiredClaims     *RequiredClaimsConfToUpdate `json:"required_claims,omitempty"`
+		OIDC               *OIDCConfToUpdate           `json:"oidc,omitempty"`
+		// Deprecated: use IntraCluster.
+		ClusterKey   *ClusterKeyConfToUpdate   `json:"cluster_key,omitempty"`
+		IntraCluster *IntraClusterConfToUpdate `json:"intra_cluster,omitempty"`
 	}
 	AuthSignatureConfToUpdate struct {
 		Key    *string `json:"key,omitempty"`
@@ -225,14 +229,27 @@ type (
 		Aud *[]string `json:"aud,omitempty"`
 	}
 	OIDCConfToUpdate struct {
-		AllowedIssuers *[]string `json:"allowed_iss,omitempty"`
-		IssuerCA       *string   `json:"issuer_ca_bundle,omitempty"`
+		AllowedIssuers *[]string              `json:"allowed_iss,omitempty"`
+		IssuerCA       *string                `json:"issuer_ca_bundle,omitempty"`
+		JWKSCacheConf  *JWKSCacheConfToUpdate `json:"jwks_cache,omitempty"`
 	}
+	JWKSCacheConfToUpdate struct {
+		MinRotationRefresh   *Duration `json:"min_rotation_refresh,omitempty"`
+		MinBackgroundRefresh *Duration `json:"min_background_refresh,omitempty"`
+	}
+	// Deprecated: use IntraClusterConfToUpdate.
 	ClusterKeyConfToUpdate struct {
 		Enabled       *bool     `json:"enabled,omitempty"`
 		TTL           *Duration `json:"ttl,omitempty"`
 		NonceWindow   *Duration `json:"nonce_window,omitempty"`
 		RotationGrace *Duration `json:"rotation_grace,omitempty"`
+	}
+	IntraClusterConfToUpdate struct {
+		NodeJoinSecretPath *string   `json:"node_join_secret_path,omitempty"`
+		TTL                *Duration `json:"ttl,omitempty"`
+		NonceWindow        *Duration `json:"nonce_window,omitempty"`
+		RotationGrace      *Duration `json:"rotation_grace,omitempty"`
+		RequestAuth        *bool     `json:"request_auth,omitempty"`
 	}
 	KeepaliveTrackerConfToUpdate struct {
 		Interval *Duration `json:"interval,omitempty"`
@@ -316,10 +333,38 @@ func (c *ConfigToUpdate) IsRebalanceEnabledSet() bool {
 
 // RequiresClientAuth reports whether the AIS config requires authenticated client requests.
 func (c *ConfigToUpdate) RequiresClientAuth() bool {
-	if c == nil || c.Auth == nil || c.Auth.Enabled == nil {
+	if c == nil || c.Auth == nil {
 		return false
 	}
-	return *c.Auth.Enabled
+	if c.Auth.ClientAuthRequired != nil {
+		return *c.Auth.ClientAuthRequired
+	}
+	return c.Auth.Enabled != nil && *c.Auth.Enabled
+}
+
+// ClientAuthRequiredSet reports whether the spec sets auth.client_auth_required.
+func (c *ConfigToUpdate) ClientAuthRequiredSet() bool {
+	return c != nil && c.Auth != nil && c.Auth.ClientAuthRequired != nil
+}
+
+// IntraClusterSet reports whether the spec sets auth.intra_cluster.
+func (c *ConfigToUpdate) IntraClusterSet() bool {
+	return c != nil && c.Auth != nil && c.Auth.IntraCluster != nil
+}
+
+// DeprecatedAuthMessages returns a message for each deprecated auth option set.
+func (c *ConfigToUpdate) DeprecatedAuthMessages() []string {
+	if c == nil || c.Auth == nil {
+		return nil
+	}
+	var msgs []string
+	if c.Auth.Enabled != nil {
+		msgs = append(msgs, "spec.configToUpdate.auth.enabled is deprecated, use spec.configToUpdate.auth.client_auth_required")
+	}
+	if c.Auth.ClusterKey != nil {
+		msgs = append(msgs, "spec.configToUpdate.auth.cluster_key is deprecated, use spec.configToUpdate.auth.intra_cluster")
+	}
+	return msgs
 }
 
 // RebalanceEnabled reports the configured rebalance.enabled value, defaulting to true when unset.

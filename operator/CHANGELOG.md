@@ -15,7 +15,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - `AIS_CLUSTER_NAME` now provided as an environment variable to all AIS pods, set to the AIStore resource name. 
 - `AIStoreAuthProfile`
   - Webhook validation rejects requests with user info in `spec.serviceURL`
-- Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth.enabled`.
+- Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth` options.
+- `spec.configToUpdate.auth.oidc.jwks_cache` to tune JWKS cache refresh intervals.
 - `AIStoreAuth`
   - Support for `spec.deployment.pod.annotations` to set custom annotations on the AuthN Deployment pod template.
   - Webhook validation rejects specs when neither `spec.adminSecret` nor `spec.deployment.pod.annotations` are set.
@@ -30,6 +31,8 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
 
 - Changes to AIStore client authentication config
+  - `auth.enabled` is deprecated in favor of `auth.client_auth_required`.
+  - `auth.cluster_key` is deprecated in favor of `auth.intra_cluster`.
   - Setting `spec.authNSecretName` sets the AIStore auth config to use the HMAC signing method when no signing method is configured.
     - This sets `spec.configToUpdate.auth.signature.method: HMAC`
     - The webhook now rejects `spec.authNSecretName` alongside allowed OIDC issuers in `spec.configToUpdate`.

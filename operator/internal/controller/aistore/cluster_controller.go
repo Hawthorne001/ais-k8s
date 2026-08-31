@@ -699,11 +699,12 @@ func (r *Reconciler) patchAISAnnotations(ctx context.Context, ais *aisv1.AIStore
 // Given cluster config, compute the hash, update the cluster if it does not match, and return hash if changed
 func (r *Reconciler) updateClusterConfig(ctx context.Context, ais *aisv1.AIStore, conf *aiscmn.ConfigToSet, forceSync bool) (newHash string, err error) {
 	logger := logf.FromContext(ctx)
-	confHash, err := cmn.HashGlobalConfig(conf)
+	// Hash and send the same bytes written to the config map, so every path names options alike.
+	data, err := cmn.MarshalGlobalConfig(ais, conf)
 	if err != nil {
-		logger.Error(err, "Error hashing global config")
-		return
+		return "", fmt.Errorf("error marshaling global config: %w", err)
 	}
+	confHash := cmn.HashGlobalConfig(data)
 
 	// Hash is same and not forcing, do nothing
 	if !forceSync && ais.Annotations[cmn.ConfigHashAnnotation] == confHash {
@@ -716,7 +717,7 @@ func (r *Reconciler) updateClusterConfig(ctx context.Context, ais *aisv1.AIStore
 	}
 
 	logger.Info("Updating cluster config to match spec via API")
-	err = apiClient.SetClusterConfigUsingMsg(conf, false /*transient*/)
+	err = apiClient.SetClusterConfigUsingMsg(data)
 	if err != nil {
 		return "", fmt.Errorf("failed to update cluster config: %w", err)
 	}

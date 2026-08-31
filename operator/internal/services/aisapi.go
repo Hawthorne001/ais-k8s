@@ -16,6 +16,7 @@ import (
 	"github.com/NVIDIA/aistore/cmn/cos"
 	"github.com/NVIDIA/aistore/core/meta"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
+	jsoniter "github.com/json-iterator/go"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -33,7 +34,7 @@ type (
 		DecommissionNode(actValue *apc.ActValRmNode) (xid string, err error)
 		GetClusterMap() (smap *meta.Smap, err error)
 		Health(readyToRebalance bool) error
-		SetClusterConfigUsingMsg(configToUpdate *cmn.ConfigToSet, transient bool) error
+		SetClusterConfigUsingMsg(config jsoniter.RawMessage) error
 		SetPrimaryProxy(newPrimaryID, newPrimaryURL string, force bool) error
 		ShutdownCluster() error
 		StartMaintenance(actValue *apc.ActValRmNode) (string, error)
@@ -177,8 +178,25 @@ func (c *AIStoreClient) Health(readyToRebalance bool) error {
 	return err
 }
 
-func (c *AIStoreClient) SetClusterConfigUsingMsg(config *cmn.ConfigToSet, transient bool) error {
-	err := api.SetClusterConfigUsingMsg(*c.params, config, transient)
+// SetClusterConfigUsingMsg applies config serialized as JSON to the cluster.
+// It sends pre-rendered JSON rather than cmn.ConfigToSet so that option names deprecated
+// in AIS v5.0.0 survive the round trip to remain parseable by older AIS versions.
+func (c *AIStoreClient) SetClusterConfigUsingMsg(config jsoniter.RawMessage) error {
+	body, err := jsoniter.Marshal(apc.ActMsg{Action: apc.ActSetConfig, Value: config})
+	if err != nil {
+		return err
+	}
+	baseParams := *c.params
+	baseParams.Method = http.MethodPut
+
+	reqParams := api.AllocRp()
+	defer api.FreeRp(reqParams)
+	reqParams.BaseParams = baseParams
+	reqParams.Path = apc.URLPathClu.S
+	reqParams.Body = body
+	reqParams.Header = http.Header{cos.HdrContentType: []string{cos.ContentJSON}}
+
+	err = reqParams.DoRequest()
 	c.checkAuthErr(err)
 	return err
 }

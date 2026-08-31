@@ -289,7 +289,7 @@ var _ = Describe("scaleDownMode", func() {
 			Expect(k8sClient.Update(ctx, ais)).To(Succeed())
 
 			ss := makeSS(3)
-			apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil)
+			apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil)
 			t3 := &aismeta.Snode{DaeID: "t3", DaeType: apc.Target, ControlNet: aismeta.NetInfo{Hostname: "ais-target-2"}}
 			smap := &aismeta.Smap{Tmap: aismeta.NodeMap{"t3": t3}}
 			apiClient.EXPECT().GetClusterMap().Return(smap, nil)

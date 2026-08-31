@@ -11,6 +11,7 @@ import (
 
 	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aiscmn "github.com/NVIDIA/aistore/cmn"
+	aiscos "github.com/NVIDIA/aistore/cmn/cos"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	jsoniter "github.com/json-iterator/go"
 )
@@ -21,6 +22,9 @@ const (
 	RestartConfigHashAnnotation = "config.aistore.nvidia.com/restart-hash"
 	RestartConfigHashInitial    = ".initial"
 )
+
+// Map keys are sorted so that a given spec always renders byte-identical config.
+var configJSON = jsoniter.Config{SortMapKeys: true, EscapeHTML: false}.Froze()
 
 // GenerateGlobalConfig creates the initial config override to supply to an AIS daemon pod
 //
@@ -103,20 +107,99 @@ func buildSpecConfigAuth(ais *aisv1.AIStore, specConfig *aisv1.ConfigToUpdate) {
 	}
 }
 
-func HashGlobalConfig(c *aiscmn.ConfigToSet) (string, error) {
-	data, err := jsoniter.Marshal(c)
-	if err != nil {
-		return "", err
+// configWithAuth marshals a ConfigToSet with its auth section replaced by pre-rendered JSON.
+// The outer field shadows the embedded one, so auth is emitted verbatim.
+type configWithAuth struct {
+	*aiscmn.ConfigToSet
+	Auth jsoniter.RawMessage `json:"auth,omitempty"`
+}
+
+// MarshalGlobalConfig serializes conf into the JSON form AIS consumes.
+func MarshalGlobalConfig(ais *aisv1.AIStore, conf *aiscmn.ConfigToSet) ([]byte, error) {
+	spec := ais.Spec.ConfigToUpdate
+	// If no auth to consider, return as marshaled by AIS
+	if conf == nil || conf.Auth == nil {
+		return configJSON.Marshal(conf)
 	}
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:]), nil
+	// Marshal legacy options for compatibility with AIS releases before v5.0.0
+	auth, err := useLegacyAuthConf(conf.Auth, spec)
+	if err != nil {
+		return nil, err
+	}
+	return configJSON.Marshal(&configWithAuth{ConfigToSet: conf, Auth: auth})
+}
+
+// useLegacyAuthConf renders conf under the auth option names AIS used before v5.0.0, keeping the
+// new name for each option the spec set that way. Options it does not rename are passed through.
+func useLegacyAuthConf(conf *aiscmn.AuthConfToSet, specConf *aisv1.ConfigToUpdate) (jsoniter.RawMessage, error) {
+	data, err := configJSON.Marshal(conf)
+	if err != nil {
+		return nil, err
+	}
+	auth := map[string]jsoniter.RawMessage{}
+	err = configJSON.Unmarshal(data, &auth)
+	if err != nil {
+		return nil, err
+	}
+	if !specConf.ClientAuthRequiredSet() {
+		renameKey(auth, "client_auth_required", "enabled")
+	}
+	if !specConf.IntraClusterSet() {
+		err = useLegacyClusterKey(auth, conf.IntraCluster)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return configJSON.Marshal(auth)
+}
+
+// legacyClusterKeyConf is the auth.cluster_key section AIS accepted before v5.0.0. Options with no
+// counterpart there are dropped, since those releases reject fields they do not know.
+type legacyClusterKeyConf struct {
+	Enabled       *bool            `json:"enabled,omitempty"`
+	TTL           *aiscos.Duration `json:"ttl,omitempty"`
+	NonceWindow   *aiscos.Duration `json:"nonce_window,omitempty"`
+	RotationGrace *aiscos.Duration `json:"rotation_grace,omitempty"`
+}
+
+// useLegacyClusterKey replaces the intra_cluster section of auth with the cluster_key section AIS
+// used before v5.0.0.
+func useLegacyClusterKey(auth map[string]jsoniter.RawMessage, intra *aiscmn.IntraClusterConfToSet) error {
+	if intra == nil {
+		return nil
+	}
+	clusterKey, err := configJSON.Marshal(&legacyClusterKeyConf{
+		Enabled:       intra.RequestAuth,
+		TTL:           intra.TTL,
+		NonceWindow:   intra.NonceWindow,
+		RotationGrace: intra.RotationGrace,
+	})
+	if err != nil {
+		return err
+	}
+	delete(auth, "intra_cluster")
+	auth["cluster_key"] = clusterKey
+	return nil
+}
+
+func renameKey(m map[string]jsoniter.RawMessage, from, to string) {
+	if v, ok := m[from]; ok {
+		delete(m, from)
+		m[to] = v
+	}
+}
+
+// HashGlobalConfig hashes the config bytes as they are written to AIS.
+func HashGlobalConfig(conf []byte) string {
+	hash := sha256.Sum256(conf)
+	return hex.EncodeToString(hash[:])
 }
 
 // HashRestartConfigs generates a hash of ONLY configs that should trigger cluster restart upon change
 func HashRestartConfigs(c *aiscmn.ConfigToSet) (string, error) {
 	checksum := sha256.Sum256([]byte{})
 	if c.Net != nil && c.Net.HTTP != nil {
-		confNetHTTP, err := jsoniter.Marshal(*c.Net.HTTP)
+		confNetHTTP, err := configJSON.Marshal(*c.Net.HTTP)
 		if err != nil {
 			return "", err
 		}

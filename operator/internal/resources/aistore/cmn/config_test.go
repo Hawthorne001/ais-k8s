@@ -5,9 +5,14 @@
 package cmn
 
 import (
+	"strings"
+	"time"
+
 	aisapc "github.com/NVIDIA/aistore/api/apc"
 	aiscmn "github.com/NVIDIA/aistore/cmn"
+	aiscos "github.com/NVIDIA/aistore/cmn/cos"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
+	jsoniter "github.com/json-iterator/go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,6 +62,51 @@ var _ = Describe("Config", Label("short"), func() {
 			Expect(clusterCfg.Tracing.Enabled).To(BeTrue())
 			Expect(clusterCfg.Tracing.ExporterAuth.TokenHeader).To(Equal("token-header"))
 			Expect(clusterCfg.Tracing.ExporterAuth.TokenFile).To(Equal("token-file"))
+		})
+
+		It("should convert the auth options added in AIS v5.0", func() {
+			toUpdate := &aisv1.ConfigToUpdate{
+				Auth: &aisv1.AuthConfToUpdate{
+					ClientAuthRequired: aisapc.Ptr(true),
+					OIDC: &aisv1.OIDCConfToUpdate{
+						JWKSCacheConf: &aisv1.JWKSCacheConfToUpdate{
+							MinRotationRefresh:   (*aisv1.Duration)(aisapc.Ptr[int64](40)),
+							MinBackgroundRefresh: (*aisv1.Duration)(aisapc.Ptr[int64](50)),
+						},
+					},
+					IntraCluster: &aisv1.IntraClusterConfToUpdate{
+						NodeJoinSecretPath: aisapc.Ptr("/var/secrets/node-join"),
+						RequestAuth:        aisapc.Ptr(true),
+					},
+				},
+			}
+
+			toSet, err := toUpdate.Convert()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(*toSet.Auth.ClientAuthRequired).To(BeTrue())
+			Expect(*toSet.Auth.OIDC.JWKSCacheConf.MinRotationRefresh).To(BeEquivalentTo(40))
+			Expect(*toSet.Auth.OIDC.JWKSCacheConf.MinBackgroundRefresh).To(BeEquivalentTo(50))
+			Expect(*toSet.Auth.IntraCluster.NodeJoinSecretPath).To(Equal("/var/secrets/node-join"))
+			Expect(*toSet.Auth.IntraCluster.RequestAuth).To(BeTrue())
+		})
+
+		It("should map the deprecated auth options onto their replacements", func() {
+			toUpdate := &aisv1.ConfigToUpdate{
+				Auth: &aisv1.AuthConfToUpdate{
+					Enabled: aisapc.Ptr(true),
+					ClusterKey: &aisv1.ClusterKeyConfToUpdate{ //nolint:staticcheck // exercising the deprecated option
+						Enabled: aisapc.Ptr(true),
+						TTL:     (*aisv1.Duration)(aisapc.Ptr[int64](60)),
+					},
+				},
+			}
+
+			toSet, err := toUpdate.Convert()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*toSet.Auth.ClientAuthRequired).To(BeTrue())
+			Expect(*toSet.Auth.IntraCluster.RequestAuth).To(BeTrue())
+			Expect(*toSet.Auth.IntraCluster.TTL).To(BeEquivalentTo(60))
 		})
 	})
 	Describe("Generate config override", func() {
@@ -257,5 +307,162 @@ var _ = Describe("Config", Label("short"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*conf).To(Equal(expected))
 		})
+	})
+	Describe("Marshal global config", func() {
+		marshal := func(conf *aisv1.ConfigToUpdate) string {
+			ais := &aisv1.AIStore{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"},
+				Spec:       aisv1.AIStoreSpec{ConfigToUpdate: conf},
+			}
+			toSet, err := GenerateConfigToSet(ais)
+			Expect(err).ToNot(HaveOccurred())
+			data, err := MarshalGlobalConfig(ais, toSet)
+			Expect(err).ToNot(HaveOccurred())
+			return string(data)
+		}
+
+		marshalRoot := func(conf *aisv1.ConfigToUpdate) map[string]jsoniter.RawMessage {
+			var root map[string]jsoniter.RawMessage
+			Expect(jsoniter.Unmarshal([]byte(marshal(conf)), &root)).To(Succeed())
+			return root
+		}
+
+		// Isolates the auth section so assertions cannot collide with same-named options elsewhere.
+		marshalAuth := func(conf *aisv1.ConfigToUpdate) string {
+			root := marshalRoot(conf)
+			Expect(root).To(HaveKey("auth"))
+			return string(root["auth"])
+		}
+
+		DescribeTable("should write the auth option named in spec",
+			func(conf *aisv1.ConfigToUpdate, expected string) {
+				Expect(marshalAuth(conf)).To(Equal(expected))
+			},
+			Entry("deprecated auth.enabled",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(true)}},
+				`{"enabled":true}`,
+			),
+			Entry("deprecated auth.enabled set to false",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(false)}},
+				`{"enabled":false}`,
+			),
+			Entry("auth.client_auth_required",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{ClientAuthRequired: aisapc.Ptr(true)}},
+				`{"client_auth_required":true}`,
+			),
+			Entry("deprecated auth.cluster_key",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{
+					ClusterKey: &aisv1.ClusterKeyConfToUpdate{ //nolint:staticcheck // exercising the deprecated option
+						Enabled:       aisapc.Ptr(true),
+						TTL:           (*aisv1.Duration)(aisapc.Ptr(int64(time.Hour))),
+						NonceWindow:   (*aisv1.Duration)(aisapc.Ptr(int64(time.Minute))),
+						RotationGrace: (*aisv1.Duration)(aisapc.Ptr(int64(time.Second))),
+					},
+				}},
+				`{"cluster_key":{"enabled":true,"ttl":"1h0m","nonce_window":"1m","rotation_grace":"1s"}}`,
+			),
+			Entry("auth.intra_cluster",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{
+					IntraCluster: &aisv1.IntraClusterConfToUpdate{
+						RequestAuth:        aisapc.Ptr(true),
+						NodeJoinSecretPath: aisapc.Ptr("/var/secrets/node-join"),
+					},
+				}},
+				`{"intra_cluster":{"node_join_secret_path":"/var/secrets/node-join","request_auth":true}}`,
+			),
+			Entry("both auth options, each in its own form",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{
+					Enabled:      aisapc.Ptr(true),
+					IntraCluster: &aisv1.IntraClusterConfToUpdate{RequestAuth: aisapc.Ptr(true)},
+				}},
+				`{"enabled":true,"intra_cluster":{"request_auth":true}}`,
+			),
+			Entry("no renameable option",
+				&aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{
+					Signature: &aisv1.AuthSignatureConfToUpdate{Method: aisapc.Ptr("hmac")},
+				}},
+				`{"signature":{"method":"hmac"}}`,
+			),
+		)
+
+		It("should not let spec.auth influence the emitted config", func() {
+			ais := &aisv1.AIStore{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"},
+				Spec: aisv1.AIStoreSpec{
+					Auth: &aisv1.AuthSpec{ProfileRef: &aisv1.AuthProfileRef{Name: "provider"}},
+				},
+			}
+			toSet, err := GenerateConfigToSet(ais)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(toSet.Auth).To(BeNil())
+
+			data, err := MarshalGlobalConfig(ais, toSet)
+			Expect(err).ToNot(HaveOccurred())
+			var root map[string]jsoniter.RawMessage
+			Expect(jsoniter.Unmarshal(data, &root)).To(Succeed())
+			Expect(root).ToNot(HaveKey("auth"))
+		})
+
+		It("should emit a single auth section when the rewritten one shadows the original", func() {
+			out := marshal(&aisv1.ConfigToUpdate{
+				Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(true)},
+			})
+			Expect(strings.Count(out, `"auth":`)).To(Equal(1))
+		})
+
+		It("should leave other sections untouched", func() {
+			out := marshal(&aisv1.ConfigToUpdate{
+				Auth:      &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(true)},
+				Rebalance: &aisv1.RebalanceConfToUpdate{Enabled: aisapc.Ptr(true)},
+				Timeout: &aisv1.TimeoutConfToUpdate{
+					MaxKeepalive: (*aisv1.Duration)(aisapc.Ptr[int64](4000000000)),
+				},
+			})
+			Expect(out).To(ContainSubstring(`"max_keepalive":"4s"`))
+			Expect(out).To(ContainSubstring(`"rebalance":{"enabled":false}`))
+		})
+
+		It("should not emit an auth section when spec sets no auth options", func() {
+			root := marshalRoot(&aisv1.ConfigToUpdate{
+				Rebalance: &aisv1.RebalanceConfToUpdate{Enabled: aisapc.Ptr(true)},
+			})
+			Expect(root).ToNot(HaveKey("auth"))
+		})
+
+		It("should render byte-identical output for the same spec", func() {
+			conf := &aisv1.ConfigToUpdate{
+				Backend: &map[string]aisv1.Empty{
+					aisapc.AWS: {}, aisapc.GCP: {}, aisapc.OCI: {},
+				},
+				Auth: &aisv1.AuthConfToUpdate{Enabled: aisapc.Ptr(true)},
+			}
+			first := marshal(conf)
+			for range 20 {
+				Expect(marshal(conf)).To(Equal(first))
+			}
+		})
+
+		DescribeTable("should write auth options AIS still accepts",
+			func(conf *aisv1.ConfigToUpdate) {
+				var asMap map[string]any
+				Expect(jsoniter.Unmarshal([]byte(marshal(conf)), &asMap)).To(Succeed())
+				// The proxy decodes the set-config message this way, rejecting unknown fields.
+				decoded := &aiscmn.ConfigToSet{}
+				Expect(aiscos.MorphMarshal(asMap, decoded)).To(Succeed())
+				Expect(*decoded.Auth.ClientAuthRequired).To(BeTrue())
+				Expect(*decoded.Auth.IntraCluster.RequestAuth).To(BeTrue())
+				Expect(*decoded.Auth.Signature.Method).To(Equal("HS256"))
+			},
+			Entry("deprecated names", &aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{
+				Enabled:    aisapc.Ptr(true),
+				ClusterKey: &aisv1.ClusterKeyConfToUpdate{Enabled: aisapc.Ptr(true)}, //nolint:staticcheck // exercising the deprecated option
+				Signature:  &aisv1.AuthSignatureConfToUpdate{Method: aisapc.Ptr("HS256")},
+			}}),
+			Entry("current names", &aisv1.ConfigToUpdate{Auth: &aisv1.AuthConfToUpdate{
+				ClientAuthRequired: aisapc.Ptr(true),
+				IntraCluster:       &aisv1.IntraClusterConfToUpdate{RequestAuth: aisapc.Ptr(true)},
+				Signature:          &aisv1.AuthSignatureConfToUpdate{Method: aisapc.Ptr("HS256")},
+			}}),
+		)
 	})
 })

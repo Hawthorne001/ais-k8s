@@ -6,14 +6,11 @@ package aistore
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/NVIDIA/aistore/api/apc"
-	aiscmn "github.com/NVIDIA/aistore/cmn"
 	"github.com/NVIDIA/aistore/cmn/cos"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	aisclient "github.com/ais-operator/internal/client"
@@ -193,13 +190,14 @@ var _ = Describe("AIStoreController", func() {
 					ais.Spec.ConfigToUpdate.Features = apc.Ptr("2568")
 					expectedConfig, err := cmn.GenerateGlobalConfig(ais)
 					Expect(err).ToNot(HaveOccurred())
-					expectedHash, err := hashGlobalConfig(expectedConfig)
+					expectedData, err := cmn.MarshalGlobalConfig(ais, expectedConfig)
 					Expect(err).ToNot(HaveOccurred())
+					expectedHash := cmn.HashGlobalConfig(expectedData)
 					err = c.Update(ctx, ais)
 					Expect(err).ToNot(HaveOccurred())
 
 					By("Reconcile to propagate config")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Times(1)
 					err = r.handleConfigState(ctx, ais, true /*force*/)
 					Expect(err).ToNot(HaveOccurred())
 
@@ -209,14 +207,39 @@ var _ = Describe("AIStoreController", func() {
 					Expect(ais.Annotations[cmn.ConfigHashAnnotation]).To(Equal(expectedHash))
 
 					By("Ensure that a repeat with the same config does not result in an API call")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Times(0)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Times(0)
 					err = r.handleConfigState(ctx, ais, false /*force*/)
 					Expect(err).ToNot(HaveOccurred())
 
 					By("Ensure that a repeat with the same config and force DOES result in an API call")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Times(1)
 					err = r.handleConfigState(ctx, ais, true /*force*/)
 					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("should send the API the same config bytes it writes to the config map", func() {
+					By("Set an auth option AIS renamed in v5.0.0")
+					ais.Spec.ConfigToUpdate.Auth = &aisv1.AuthConfToUpdate{
+						ClusterKey: &aisv1.ClusterKeyConfToUpdate{Enabled: apc.Ptr(true)}, //nolint:staticcheck // exercising the deprecated option
+					}
+					Expect(c.Update(ctx, ais)).To(Succeed())
+
+					var sent []byte
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).
+						DoAndReturn(func(conf jsoniter.RawMessage) error {
+							sent = conf
+							return nil
+						}).Times(1)
+					Expect(r.handleConfigState(ctx, ais, true /*force*/)).To(Succeed())
+
+					By("Expect the config map to hold those exact bytes")
+					cm, err := cmn.NewGlobalCM(ais)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(string(sent)).To(Equal(cm.Data[cmn.AISGlobalConfigName]))
+
+					By("Expect the deprecated name in both")
+					Expect(string(sent)).To(ContainSubstring(`"cluster_key"`))
+					Expect(string(sent)).ToNot(ContainSubstring("intra_cluster"))
 				})
 
 				It("should reconcile new init image in spec", func() {
@@ -224,7 +247,7 @@ var _ = Describe("AIStoreController", func() {
 					createStatefulSets(ctx, c, ais, r)
 
 					By("Update init image in spec and reconcile")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil).Times(1)
 					ais.Spec.InitImage = newImg
 					err := c.Update(ctx, ais)
 					Expect(err).ToNot(HaveOccurred())
@@ -240,7 +263,7 @@ var _ = Describe("AIStoreController", func() {
 					createStatefulSets(ctx, c, ais, r)
 
 					By("Update node image in spec and reconcile")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil).Times(1)
 					ais.Spec.NodeImage = newImg
 					err := c.Update(ctx, ais)
 					Expect(err).ToNot(HaveOccurred())
@@ -255,7 +278,7 @@ var _ = Describe("AIStoreController", func() {
 					createStatefulSets(ctx, c, ais, r)
 
 					By("Update container resources and reconcile")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil).Times(1)
 					expStorage := cmn.DefaultLogsStorageReq + cmn.DefaultConfigStorageReq + cmn.DefaultMiscStorageReq
 					ais.Spec.ProxySpec.Resources = corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
@@ -298,7 +321,7 @@ var _ = Describe("AIStoreController", func() {
 					createStatefulSets(ctx, c, ais, r)
 
 					By("Update security context in spec and reconcile")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil).Times(1)
 					ais.Spec.ProxySpec.SecurityContext = &corev1.PodSecurityContext{
 						RunAsUser: apc.Ptr(int64(1000)),
 					}
@@ -332,7 +355,7 @@ var _ = Describe("AIStoreController", func() {
 					createStatefulSets(ctx, c, ais, r)
 
 					By("Update security context in spec and reconcile")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil).Times(1)
 					ais.Spec.ProxySpec.SecurityContext = nil
 					ais.Spec.TargetSpec.SecurityContext = nil
 					err := c.Update(ctx, ais)
@@ -356,7 +379,7 @@ var _ = Describe("AIStoreController", func() {
 					createStatefulSets(ctx, c, ais, r)
 
 					By("Update field in spec and reconcile")
-					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any(), false).Return(nil).Times(1)
+					apiClient.EXPECT().SetClusterConfigUsingMsg(gomock.Any()).Return(nil).Times(1)
 					setField(ais)
 					err := c.Update(ctx, ais)
 					Expect(err).ToNot(HaveOccurred())
@@ -1248,13 +1271,4 @@ func reconcileProxy(ctx context.Context, ais *aisv1.AIStore, r *Reconciler) {
 	result, err := r.handleProxyState(ctx, ais)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(result.RequeueAfter).To(Not(BeNil()))
-}
-
-func hashGlobalConfig(c *aiscmn.ConfigToSet) (string, error) {
-	data, err := jsoniter.Marshal(c)
-	if err != nil {
-		return "", err
-	}
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:]), nil
 }

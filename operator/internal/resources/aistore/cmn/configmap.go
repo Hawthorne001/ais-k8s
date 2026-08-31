@@ -21,12 +21,12 @@ func NewGlobalCM(ais *aisv1.AIStore) (*corev1ac.ConfigMapApplyConfiguration, err
 	if err != nil {
 		return nil, err
 	}
-	conf, err := jsoniter.MarshalToString(globalConf)
+	conf, err := MarshalGlobalConfig(ais, globalConf)
 	if err != nil {
 		return nil, err
 	}
 	data := map[string]string{
-		AISGlobalConfigName: conf,
+		AISGlobalConfigName: string(conf),
 	}
 	if ais.Spec.HostnameMap != nil {
 		hostnameMap, err := jsoniter.MarshalToString(ais.Spec.HostnameMap)

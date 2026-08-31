@@ -14,9 +14,9 @@ import (
 	reflect "reflect"
 
 	apc "github.com/NVIDIA/aistore/api/apc"
-	cmn "github.com/NVIDIA/aistore/cmn"
 	meta "github.com/NVIDIA/aistore/core/meta"
 	v1beta1 "github.com/ais-operator/api/aistore/v1beta1"
+	jsoniter "github.com/json-iterator/go"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -117,17 +117,17 @@ func (mr *MockAIStoreClientInterfaceMockRecorder) Health(readyToRebalance any) *
 }
 
 // SetClusterConfigUsingMsg mocks base method.
-func (m *MockAIStoreClientInterface) SetClusterConfigUsingMsg(configToUpdate *cmn.ConfigToSet, transient bool) error {
+func (m *MockAIStoreClientInterface) SetClusterConfigUsingMsg(config jsoniter.RawMessage) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetClusterConfigUsingMsg", configToUpdate, transient)
+	ret := m.ctrl.Call(m, "SetClusterConfigUsingMsg", config)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetClusterConfigUsingMsg indicates an expected call of SetClusterConfigUsingMsg.
-func (mr *MockAIStoreClientInterfaceMockRecorder) SetClusterConfigUsingMsg(configToUpdate, transient any) *gomock.Call {
+func (mr *MockAIStoreClientInterfaceMockRecorder) SetClusterConfigUsingMsg(config any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClusterConfigUsingMsg", reflect.TypeOf((*MockAIStoreClientInterface)(nil).SetClusterConfigUsingMsg), configToUpdate, transient)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClusterConfigUsingMsg", reflect.TypeOf((*MockAIStoreClientInterface)(nil).SetClusterConfigUsingMsg), config)
 }
 
 // SetPrimaryProxy mocks base method.

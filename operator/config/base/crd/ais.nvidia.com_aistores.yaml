@@ -1343,7 +1343,10 @@ spec:
                     type: object
                   auth:
                     properties:
+                      client_auth_required:
+                        type: boolean
                       cluster_key:
+                        description: 'Deprecated: use IntraCluster.'
                         properties:
                           enabled:
                             type: boolean
@@ -1355,7 +1358,21 @@ spec:
                             type: string
                         type: object
                       enabled:
+                        description: 'Deprecated: use ClientAuthRequired.'
                         type: boolean
+                      intra_cluster:
+                        properties:
+                          node_join_secret_path:
+                            type: string
+                          nonce_window:
+                            type: string
+                          request_auth:
+                            type: boolean
+                          rotation_grace:
+                            type: string
+                          ttl:
+                            type: string
+                        type: object
                       oidc:
                         properties:
                           allowed_iss:
@@ -1364,6 +1381,13 @@ spec:
                             type: array
                           issuer_ca_bundle:
                             type: string
+                          jwks_cache:
+                            properties:
+                              min_background_refresh:
+                                type: string
+                              min_rotation_refresh:
+                                type: string
+                            type: object
                         type: object
                       required_claims:
                         properties:
