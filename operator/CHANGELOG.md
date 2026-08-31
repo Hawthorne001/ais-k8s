@@ -43,6 +43,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
   - Use `spec.proxySpec.externalAccess` and/or `spec.targetSpec.externalAccess`.
 - `spec.clusterDomain`, deprecated in v3.4.0. 
   - AIS clusters will always use the cluster domain the operator is configured with or discovers at startup.
+- Go import path `github.com/ais-operator/api/v1beta1`. Import `github.com/ais-operator/api/aistore/v1beta1` instead.
 
 ---
 
