@@ -36,7 +36,7 @@ func PodName(ais *aisv1.AIStore, index int32) string {
 }
 
 func NewTargetHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration {
-	servicePort := ais.Spec.TargetSpec.ServicePort
+	publicPort := ais.TargetPublicPort()
 	controlPort := ais.TargetIntraControlPort()
 	dataPort := ais.TargetIntraDataPort()
 	svc := ais.TargetHeadlessSVCNSName()
@@ -53,8 +53,8 @@ func NewTargetHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguratio
 				corev1ac.ServicePort().
 					WithName("pub").
 					WithProtocol(corev1.ProtocolTCP).
-					WithPort(int32(servicePort.IntValue())).
-					WithTargetPort(servicePort),
+					WithPort(int32(publicPort.IntValue())).
+					WithTargetPort(publicPort),
 				corev1ac.ServicePort().
 					WithName("control").
 					WithProtocol(corev1.ProtocolTCP).

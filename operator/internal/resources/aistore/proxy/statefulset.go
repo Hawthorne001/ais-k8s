@@ -106,7 +106,7 @@ func proxyPodSpec(ais *aisv1.AIStore) *corev1.PodSpec {
 				Command:         []string{"aisnode"},
 				Args:            cmn.NewAISContainerArgs(ais.GetTargetSize(), aisapc.Proxy),
 				Env:             NewAISContainerEnv(ais),
-				Ports:           cmn.NewDaemonPorts(&ais.Spec.ProxySpec),
+				Ports:           cmn.NewDaemonPorts(ais.Spec.ProxySpec.HostPort, ais.ProxyPublicPort()),
 				Resources:       *cmn.NewResourceReq(ais, &ais.Spec.ProxySpec.Resources),
 				SecurityContext: cmn.GetAISSecurityContext(&ais.Spec.ProxySpec),
 				VolumeMounts:    newVolumeMounts(ais),

@@ -12,7 +12,7 @@ In standard deployments, the `hostPort` setting in a pod specification is used t
 
 ### Internal and External Access
 
-- **Internal Access**: By omitting the `hostPort` field, targets can communicate internally using `servicePort`. This setup restricts external access, safeguarding your cluster from unauthorized external communications.
+- **Internal Access**: By omitting the `hostPort` field, targets are not published on the host and are reachable only in-cluster, at each target's pod IP on `portPublic`. This setup restricts external access, safeguarding your cluster from unauthorized external communications.
 - **External Access**: If external access to targets is necessary, consider deploying a LoadBalancer. Set `externalLB` to `true` in your StatefulSet specification to facilitate this access.
 
 ## Persistent Volume Configuration

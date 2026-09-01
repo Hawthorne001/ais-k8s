@@ -31,7 +31,7 @@ func LoadBalancerSVCNSName(ais *aisv1.AIStore) types.NamespacedName {
 
 // NewProxyHeadlessSvc creates the apply config for the headless Service fronting proxy pods.
 func NewProxyHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration {
-	servicePort := ais.Spec.ProxySpec.ServicePort
+	publicPort := ais.ProxyPublicPort()
 	controlPort := ais.ProxyIntraControlPort()
 	dataPort := ais.ProxyIntraDataPort()
 	svc := ais.ProxyHeadlessSVCNSName()
@@ -48,8 +48,8 @@ func NewProxyHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration
 				corev1ac.ServicePort().
 					WithName("pub").
 					WithProtocol(corev1.ProtocolTCP).
-					WithPort(int32(servicePort.IntValue())).
-					WithTargetPort(servicePort),
+					WithPort(int32(publicPort.IntValue())).
+					WithTargetPort(publicPort),
 				corev1ac.ServicePort().
 					WithName("control").
 					WithProtocol(corev1.ProtocolTCP).

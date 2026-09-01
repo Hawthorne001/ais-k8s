@@ -133,17 +133,17 @@ func NewStartupProbe(ais *aisv1.AIStore, daemonRole string) *corev1.Probe {
 	return probe
 }
 
-func NewDaemonPorts(spec *aisv1.DaemonSpec) []corev1.ContainerPort {
-	var hostPort int32
-	if spec.HostPort != nil {
-		hostPort = *spec.HostPort
+func NewDaemonPorts(hostPort *int32, publicPort intstr.IntOrString) []corev1.ContainerPort {
+	var host int32
+	if hostPort != nil {
+		host = *hostPort
 	}
 	return []corev1.ContainerPort{
 		{
 			Name:          "http",
-			ContainerPort: int32(spec.ServicePort.IntValue()),
+			ContainerPort: int32(publicPort.IntValue()),
 			Protocol:      corev1.ProtocolTCP,
-			HostPort:      hostPort,
+			HostPort:      host,
 		},
 	}
 }

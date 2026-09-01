@@ -94,7 +94,7 @@ func targetPodSpec(ais *aisv1.AIStore) *corev1.PodSpec {
 				Command:         []string{"aisnode"},
 				Args:            cmn.NewAISContainerArgs(ais.GetTargetSize(), aisapc.Target),
 				Env:             NewAISContainerEnv(ais),
-				Ports:           cmn.NewDaemonPorts(&ais.Spec.TargetSpec.DaemonSpec),
+				Ports:           cmn.NewDaemonPorts(ais.Spec.TargetSpec.HostPort, ais.TargetPublicPort()),
 				Resources:       *cmn.NewResourceReq(ais, &ais.Spec.TargetSpec.Resources),
 				SecurityContext: cmn.GetAISSecurityContext(&ais.Spec.TargetSpec.DaemonSpec),
 				VolumeMounts:    newVolumeMounts(ais),
