@@ -56,7 +56,7 @@ When first deployed, the AIStore realm does not include any users, which must ex
 You can create AIS users manually or use our utility Python script to create `ais-admin` (update args as needed): 
 
 ```bash
-../scripts/prepare_cluster.sh https://localhost:8443 admin admin ./server.crt.pem
+../scripts/prepare_cluster.sh https://localhost:8443 admin ./server.crt.pem
 ```
 
 ## Getting a Token

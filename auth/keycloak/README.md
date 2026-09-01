@@ -15,6 +15,7 @@ The AIStore Realm is auto-imported in both the Docker and KinD deployment automa
 This realm comes by default with a client `AIStore` and a default admin role that can be assigned to users. 
 It does NOT come with any users pre-created. 
 An AIStore admin user can be created via the Keycloak interface or using the [prepare_cluster script](./scripts/prepare_cluster.sh).
+The script prompts for the Keycloak admin password, or reads it from stdin when piped in.
 
 ## Using test-cluster.sh
 

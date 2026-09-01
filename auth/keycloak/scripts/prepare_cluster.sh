@@ -3,23 +3,28 @@ set -e
 
 # This script creates an ais-admin user in an active keycloak
 # Note this REQUIRES a port-forward to already be running or a locally accessible cluster
+# The keycloak admin password is prompted, or read from stdin when piped in
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  echo "Usage: $0 <HOST> <USER> <PASS> [CA_CRT_PATH]" >&2
+  echo "Usage: $0 <HOST> <USER> [CA_CRT_PATH]" >&2
   exit 1
 }
 
-# Require at least 3 args, 4th is optional
-if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+# Require at least 2 args, 3rd is optional
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   usage
 fi
 
 KEYCLOAK_HOST="$1"
 USER="$2"
-PASS="$3"
-CA_FILE="${4:-}"
+CA_FILE="${3:-}"
+
+if [ -n "$CA_FILE" ] && [ ! -f "$CA_FILE" ]; then
+  echo "CA cert '$CA_FILE' not found" >&2
+  usage
+fi
 
 # Set up venv and requirements
 if [ -d "$SCRIPT_DIR/venv" ]; then
@@ -38,7 +43,6 @@ PY_ARGS=(
   --host "$KEYCLOAK_HOST"
   --realm aistore
   --admin-user "$USER"
-  --admin-pass "$PASS"
 )
 
 if [ -n "$CA_FILE" ]; then

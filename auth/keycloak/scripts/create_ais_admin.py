@@ -38,11 +38,6 @@ def parse_args():
         help="Keycloak admin username (in master realm).",
     )
     parser.add_argument(
-        "--admin-pass",
-        required=True,
-        help="Keycloak admin password (in master realm).",
-    )
-    parser.add_argument(
         "--insecure",
         action="store_true",
         help="Disable SSL verification (use only for testing).",
@@ -73,6 +68,18 @@ def _build_verify_option(args):
     return True
 
 
+def resolve_admin_password() -> str:
+    """Prompt for the admin password, or read it from stdin when piped in."""
+    if sys.stdin.isatty():
+        password = getpass("Keycloak admin password: ")
+    else:
+        password = sys.stdin.readline().rstrip("\n")
+    if not password:
+        print("Admin password cannot be empty.", file=sys.stderr)
+        sys.exit(1)
+    return password
+
+
 def create_admin(args):
     verify_opt = _build_verify_option(args)
 
@@ -80,7 +87,7 @@ def create_admin(args):
         return KeycloakAdmin(
             server_url=args.host,
             username=args.admin_user,
-            password=args.admin_pass,
+            password=resolve_admin_password(),
             realm_name=args.realm,       # target realm for admin operations
             user_realm_name="master",    # credentials are in master realm
             verify=verify_opt,           # bool or CA bundle path

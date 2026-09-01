@@ -92,7 +92,7 @@ kubectl get secret ca-root-secret -n cert-manager -o "jsonpath={.data['ca\.crt']
 # Create an ais-admin user through the port-forward above.
 # The certificate includes a localhost SAN, so this needs no hosts entry for the internal service name.
 KEYCLOAK_HOST="https://localhost:8543"
-"$SCRIPT_DIR/scripts/prepare_cluster.sh" "$KEYCLOAK_HOST" "$USER" "$PASS" "$CA_FILE"
+echo "$PASS" | "$SCRIPT_DIR/scripts/prepare_cluster.sh" "$KEYCLOAK_HOST" "$USER" "$CA_FILE"
 
 echo ""
 echo "Initial admin user: ${USER}"
