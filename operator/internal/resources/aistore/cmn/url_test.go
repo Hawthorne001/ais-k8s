@@ -36,8 +36,8 @@ func newURLTestAIS() *aisv1.AIStore {
 		Spec: aisv1.AIStoreSpec{
 			ProxySpec: aisv1.DaemonSpec{
 				ServiceSpec: aisv1.ServiceSpec{
-					PublicPort:       intstr.FromInt32(urlTestPublicPort),
-					IntraControlPort: intstr.FromInt32(urlTestControlPort),
+					PublicPort:       aisapc.Ptr(intstr.FromInt32(urlTestPublicPort)),
+					IntraControlPort: aisapc.Ptr(intstr.FromInt32(urlTestControlPort)),
 				},
 			},
 		},

@@ -45,9 +45,9 @@ func newHTTPProbeHandle(ais *aisv1.AIStore, daemonRole, probeEndpoint string) co
 
 	switch daemonRole {
 	case aisapc.Proxy:
-		httpPort = ais.Spec.ProxySpec.PublicPort
+		httpPort = ais.ProxyPublicPort()
 	case aisapc.Target:
-		httpPort = ais.Spec.TargetSpec.PublicPort
+		httpPort = ais.TargetPublicPort()
 	}
 	return corev1.ProbeHandler{
 		HTTPGet: &corev1.HTTPGetAction{

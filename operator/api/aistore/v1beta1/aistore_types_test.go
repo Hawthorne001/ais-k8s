@@ -259,14 +259,37 @@ var _ = Describe("AIStore", func() {
 							ProxySpec: DaemonSpec{
 								ServiceSpec: ServiceSpec{
 									ServicePort:      intstr.FromInt32(51080),
-									PublicPort:       intstr.FromInt32(51080),
-									IntraControlPort: intstr.FromInt32(51081),
-									IntraDataPort:    intstr.FromInt32(51082),
+									PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
+									IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
+									IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),
 								},
 							},
 						},
 					},
 					"spec.targetSpec.servicePort: Invalid value: 0: must be between 1 and 65535",
+				),
+				Entry(
+					"proxy portPublic explicitly set to zero",
+					AIStore{
+						Spec: AIStoreSpec{
+							Size: aisapc.Ptr[int32](1),
+							StateStorage: &StateStorage{
+								HostPath: &StateHostPathConfig{Prefix: "/mnt"},
+							},
+							ProxySpec: DaemonSpec{
+								ServiceSpec: ServiceSpec{
+									ServicePort: intstr.FromInt32(51080),
+									PublicPort:  aisapc.Ptr(intstr.FromInt32(0)),
+								},
+							},
+							TargetSpec: TargetSpec{
+								DaemonSpec: DaemonSpec{
+									ServiceSpec: ServiceSpec{ServicePort: intstr.FromInt32(51081)},
+								},
+							},
+						},
+					},
+					"spec.proxySpec.portPublic: Invalid value: 0: must be between 1 and 65535",
 				),
 			)
 
@@ -280,18 +303,18 @@ var _ = Describe("AIStore", func() {
 						ProxySpec: DaemonSpec{
 							ServiceSpec: ServiceSpec{
 								ServicePort:      intstr.FromInt32(51080),
-								PublicPort:       intstr.FromInt32(51080),
-								IntraControlPort: intstr.FromInt32(51081),
-								IntraDataPort:    intstr.FromInt32(51082),
+								PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
+								IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
+								IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),
 							},
 						},
 						TargetSpec: TargetSpec{
 							DaemonSpec: DaemonSpec{
 								ServiceSpec: ServiceSpec{
 									ServicePort:      intstr.FromInt32(51080),
-									PublicPort:       intstr.FromInt32(51080),
-									IntraControlPort: intstr.FromInt32(51081),
-									IntraDataPort:    intstr.FromInt32(51082),
+									PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
+									IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
+									IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),
 								},
 							},
 						},

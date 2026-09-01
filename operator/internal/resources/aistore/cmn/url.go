@@ -15,22 +15,25 @@ import (
 // DefaultProxyURL returns the URL of the proxy that starts out as primary.
 func DefaultProxyURL(ais *aisv1.AIStore) string {
 	// Example: https://ais-proxy-0.ais-proxy.ais.svc.cluster.local:51082
+	controlPort := ais.ProxyIntraControlPort()
 	return svcaddr.PodURL(urlScheme(ais), ais.DefaultPrimaryName(),
-		ais.ProxyHeadlessSVCNSName(), ais.Spec.ProxySpec.IntraControlPort.String())
+		ais.ProxyHeadlessSVCNSName(), controlPort.String())
 }
 
 // IntraClusterURL returns the URL of the cluster-internal proxy service on the public network.
 func IntraClusterURL(ais *aisv1.AIStore) string {
 	// Example: https://ais-proxy.ais.svc.cluster.local:51080
+	publicPort := ais.ProxyPublicPort()
 	return svcaddr.ServiceURL(urlScheme(ais),
-		ais.ProxyHeadlessSVCNSName(), ais.Spec.ProxySpec.PublicPort.String())
+		ais.ProxyHeadlessSVCNSName(), publicPort.String())
 }
 
 // DiscoveryProxyURL returns the URL of the proxy service on the intra-control network.
 func DiscoveryProxyURL(ais *aisv1.AIStore) string {
 	// Example: https://ais-proxy.ais.svc.cluster.local:51082
+	controlPort := ais.ProxyIntraControlPort()
 	return svcaddr.ServiceURL(urlScheme(ais),
-		ais.ProxyHeadlessSVCNSName(), ais.Spec.ProxySpec.IntraControlPort.String())
+		ais.ProxyHeadlessSVCNSName(), controlPort.String())
 }
 
 // AISHostURL returns the URL matching the AIS scheme with the given hostname and port.

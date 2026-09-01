@@ -23,7 +23,7 @@ func ConfigMapNSName(ais *aisv1.AIStore) types.NamespacedName {
 }
 
 func NewProxyCM(ais *aisv1.AIStore) (*corev1ac.ConfigMapApplyConfiguration, error) {
-	localConf := localConfTemplate(&ais.Spec.ProxySpec.ServiceSpec)
+	localConf := localConfTemplate(ais)
 	confLocal, err := jsoniter.MarshalToString(localConf)
 	if err != nil {
 		return nil, err
@@ -35,7 +35,10 @@ func NewProxyCM(ais *aisv1.AIStore) (*corev1ac.ConfigMapApplyConfiguration, erro
 		}), nil
 }
 
-func localConfTemplate(spec *aisv1.ServiceSpec) aiscmn.LocalConfig {
+func localConfTemplate(ais *aisv1.AIStore) aiscmn.LocalConfig {
+	publicPort := ais.ProxyPublicPort()
+	controlPort := ais.ProxyIntraControlPort()
+	dataPort := ais.ProxyIntraDataPort()
 	return aiscmn.LocalConfig{
 		ConfigDir: cmn.StateDir,
 		LogDir:    cmn.LogsDir,
@@ -43,9 +46,9 @@ func localConfTemplate(spec *aisv1.ServiceSpec) aiscmn.LocalConfig {
 			Hostname:             "${AIS_PUBLIC_HOSTNAME}",
 			HostnameIntraControl: "${AIS_INTRA_HOSTNAME}",
 			HostnameIntraData:    "${AIS_DATA_HOSTNAME}",
-			Port:                 spec.PublicPort.IntValue(),
-			PortIntraControl:     spec.IntraControlPort.IntValue(),
-			PortIntraData:        spec.IntraDataPort.IntValue(),
+			Port:                 publicPort.IntValue(),
+			PortIntraControl:     controlPort.IntValue(),
+			PortIntraData:        dataPort.IntValue(),
 		},
 	}
 }

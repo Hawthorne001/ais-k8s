@@ -92,10 +92,11 @@ func (cc *clientCluster) getTimeout() time.Duration {
 // Use to avoid a host port collision with an existing host port cluster
 func (cc *clientCluster) applyHostPortOffset(offset int32) {
 	specs := []*aisv1.DaemonSpec{&cc.cluster.Spec.ProxySpec, &cc.cluster.Spec.TargetSpec.DaemonSpec}
+	publicPorts := []intstr.IntOrString{cc.cluster.ProxyPublicPort(), cc.cluster.TargetPublicPort()}
 	for i := range specs {
 		specs[i].HostPort = aisapc.Ptr(*specs[i].HostPort + offset)
 		specs[i].ServicePort = intstr.FromInt32(specs[i].ServicePort.IntVal + offset)
-		specs[i].PublicPort = intstr.FromInt32(specs[i].PublicPort.IntVal + offset)
+		specs[i].PublicPort = aisapc.Ptr(intstr.FromInt32(int32(publicPorts[i].IntValue()) + offset))
 	}
 }
 

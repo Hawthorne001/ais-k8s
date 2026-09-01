@@ -143,7 +143,8 @@ func (m *AISClientManager) getAISAPIEndpoint(ctx context.Context,
 			logf.FromContext(ctx).Error(err, "Failed to get public AIS API parameters")
 			return "", err
 		}
-		return cmn.AISHostURL(ais, hostname, ais.Spec.ProxySpec.PublicPort.String()), nil
+		proxyPublicPort := ais.ProxyPublicPort()
+		return cmn.AISHostURL(ais, hostname, proxyPublicPort.String()), nil
 	// If LoadBalancer is configured use the LB service to contact the API.
 	case ais.ProxyExternalAccessEnabled():
 		proxyLBSVC, svcErr := m.k8sClient.GetService(ctx, proxy.LoadBalancerSVCNSName(ais))

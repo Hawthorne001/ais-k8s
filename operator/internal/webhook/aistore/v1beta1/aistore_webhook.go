@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -202,8 +203,43 @@ func allowDaemonSpecUpdates(prev, spec *aisv1.DaemonSpec) {
 	prev.Tolerations = spec.Tolerations
 }
 
+// allowProxyPortUpdates copies proxy port fields whose port number is unchanged once defaults are
+// applied, so an existing cluster can drop port fields that already match the defaults.
+func allowProxyPortUpdates(prev, ais *aisv1.AIStore) {
+	prevSpec, spec := &prev.Spec.ProxySpec.ServiceSpec, &ais.Spec.ProxySpec.ServiceSpec
+	if samePort(prev.ProxyPublicPort(), ais.ProxyPublicPort()) {
+		prevSpec.PublicPort = spec.PublicPort
+	}
+	if samePort(prev.ProxyIntraControlPort(), ais.ProxyIntraControlPort()) {
+		prevSpec.IntraControlPort = spec.IntraControlPort
+	}
+	if samePort(prev.ProxyIntraDataPort(), ais.ProxyIntraDataPort()) {
+		prevSpec.IntraDataPort = spec.IntraDataPort
+	}
+}
+
+// allowTargetPortUpdates copies target port fields whose port number is unchanged once defaults are
+// applied, so an existing cluster can drop port fields that already match the defaults.
+func allowTargetPortUpdates(prev, ais *aisv1.AIStore) {
+	prevSpec, spec := &prev.Spec.TargetSpec.ServiceSpec, &ais.Spec.TargetSpec.ServiceSpec
+	if samePort(prev.TargetPublicPort(), ais.TargetPublicPort()) {
+		prevSpec.PublicPort = spec.PublicPort
+	}
+	if samePort(prev.TargetIntraControlPort(), ais.TargetIntraControlPort()) {
+		prevSpec.IntraControlPort = spec.IntraControlPort
+	}
+	if samePort(prev.TargetIntraDataPort(), ais.TargetIntraDataPort()) {
+		prevSpec.IntraDataPort = spec.IntraDataPort
+	}
+}
+
+func samePort(a, b intstr.IntOrString) bool {
+	return a.IntValue() == b.IntValue()
+}
+
 func validateProxyUpdate(prev, ais *aisv1.AIStore) error {
 	allowDaemonSpecUpdates(&prev.Spec.ProxySpec, &ais.Spec.ProxySpec)
+	allowProxyPortUpdates(prev, ais)
 	if !equality.Semantic.DeepEqual(ais.Spec.ProxySpec, prev.Spec.ProxySpec) {
 		diff := deep.Equal(ais.Spec.ProxySpec, prev.Spec.ProxySpec)
 		webhooklog.Info(fmt.Sprintf("Differences found in proxy spec: [%s]", strings.Join(diff, ", ")))
@@ -214,6 +250,7 @@ func validateProxyUpdate(prev, ais *aisv1.AIStore) error {
 
 func validateTargetUpdate(prev, ais *aisv1.AIStore) error {
 	allowDaemonSpecUpdates(&prev.Spec.TargetSpec.DaemonSpec, &ais.Spec.TargetSpec.DaemonSpec)
+	allowTargetPortUpdates(prev, ais)
 	prev.Spec.TargetSpec.PodDisruptionBudget = ais.Spec.TargetSpec.PodDisruptionBudget
 	prev.Spec.TargetSpec.ScaleDownMode = ais.Spec.TargetSpec.ScaleDownMode
 	if !equality.Semantic.DeepEqual(ais.Spec.TargetSpec, prev.Spec.TargetSpec) {

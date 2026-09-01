@@ -3355,16 +3355,27 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      IntraControlPort is the container port the AIS proxy or target process listens on for the
+                      intra-cluster control network.
+                      Defaults to 51082.
                     x-kubernetes-int-or-string: true
                   portIntraData:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      IntraDataPort is the container port the AIS proxy or target process listens on for the
+                      intra-cluster data network.
+                      Defaults to 51083.
                     x-kubernetes-int-or-string: true
                   portPublic:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      PublicPort is the container port the AIS proxy or target process listens on for the public network.
+                      Defaults to 51080 on proxies and 51081 on targets.
                     x-kubernetes-int-or-string: true
                   probes:
                     description: |-
@@ -3805,9 +3816,6 @@ spec:
                       type: object
                     type: array
                 required:
-                - portIntraControl
-                - portIntraData
-                - portPublic
                 - servicePort
                 type: object
               publicNetDNSMode:
@@ -5310,16 +5318,27 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      IntraControlPort is the container port the AIS proxy or target process listens on for the
+                      intra-cluster control network.
+                      Defaults to 51082.
                     x-kubernetes-int-or-string: true
                   portIntraData:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      IntraDataPort is the container port the AIS proxy or target process listens on for the
+                      intra-cluster data network.
+                      Defaults to 51083.
                     x-kubernetes-int-or-string: true
                   portPublic:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      PublicPort is the container port the AIS proxy or target process listens on for the public network.
+                      Defaults to 51080 on proxies and 51081 on targets.
                     x-kubernetes-int-or-string: true
                   probes:
                     description: |-
@@ -5778,9 +5797,6 @@ spec:
                     type: array
                 required:
                 - mounts
-                - portIntraControl
-                - portIntraData
-                - portPublic
                 - servicePort
                 type: object
               tls:

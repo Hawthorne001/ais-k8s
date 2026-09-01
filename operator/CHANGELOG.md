@@ -30,6 +30,12 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 - Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
 - Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
 - Updated all `spec.configToUpdate` fields to match AIStore v5.0.0 config.
+- Port values now receive the following defaults if not provided in spec:
+  - Proxy `portPublic: 51080`
+  - Target `portPublic: 51081`
+  - `portIntraControl: 51082`
+  - `portIntraData: 51083`
+  - The types of each of these in `ServiceSpec` are now pointers, which is a breaking change for any direct Go importers.
 
 - Changes to AIStore client authentication config
   - `auth.enabled` is deprecated in favor of `auth.client_auth_required`.

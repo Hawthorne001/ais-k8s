@@ -466,10 +466,21 @@ type AutoScaleStatus struct {
 
 // ServiceSpec defines the specs of AIS Gateways
 type ServiceSpec struct {
-	ServicePort      intstr.IntOrString `json:"servicePort"`
-	PublicPort       intstr.IntOrString `json:"portPublic"` // port of PublicNet
-	IntraControlPort intstr.IntOrString `json:"portIntraControl"`
-	IntraDataPort    intstr.IntOrString `json:"portIntraData"`
+	ServicePort intstr.IntOrString `json:"servicePort"`
+	// PublicPort is the container port the AIS proxy or target process listens on for the public network.
+	// Defaults to 51080 on proxies and 51081 on targets.
+	// +optional
+	PublicPort *intstr.IntOrString `json:"portPublic,omitempty"`
+	// IntraControlPort is the container port the AIS proxy or target process listens on for the
+	// intra-cluster control network.
+	// Defaults to 51082.
+	// +optional
+	IntraControlPort *intstr.IntOrString `json:"portIntraControl,omitempty"`
+	// IntraDataPort is the container port the AIS proxy or target process listens on for the
+	// intra-cluster data network.
+	// Defaults to 51083.
+	// +optional
+	IntraDataPort *intstr.IntOrString `json:"portIntraData,omitempty"`
 }
 
 // NodeSpec defines the specs for AIS Daemon pods/containers

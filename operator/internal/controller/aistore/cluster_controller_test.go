@@ -90,9 +90,9 @@ var _ = Describe("AIStoreController", func() {
 							Size: apc.Ptr[int32](1),
 							ServiceSpec: aisv1.ServiceSpec{
 								ServicePort:      intstr.FromInt32(51080),
-								PublicPort:       intstr.FromInt32(51081),
-								IntraControlPort: intstr.FromInt32(51082),
-								IntraDataPort:    intstr.FromInt32(51083),
+								PublicPort:       apc.Ptr(intstr.FromInt32(51081)),
+								IntraControlPort: apc.Ptr(intstr.FromInt32(51082)),
+								IntraDataPort:    apc.Ptr(intstr.FromInt32(51083)),
 							},
 						},
 						TargetSpec: aisv1.TargetSpec{
@@ -100,9 +100,9 @@ var _ = Describe("AIStoreController", func() {
 								Size: apc.Ptr[int32](1),
 								ServiceSpec: aisv1.ServiceSpec{
 									ServicePort:      intstr.FromInt32(51080),
-									PublicPort:       intstr.FromInt32(51081),
-									IntraControlPort: intstr.FromInt32(51082),
-									IntraDataPort:    intstr.FromInt32(51083),
+									PublicPort:       apc.Ptr(intstr.FromInt32(51081)),
+									IntraControlPort: apc.Ptr(intstr.FromInt32(51082)),
+									IntraDataPort:    apc.Ptr(intstr.FromInt32(51083)),
 								},
 							},
 							Mounts: []aisv1.Mount{

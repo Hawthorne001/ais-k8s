@@ -37,8 +37,8 @@ func PodName(ais *aisv1.AIStore, index int32) string {
 
 func NewTargetHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration {
 	servicePort := ais.Spec.TargetSpec.ServicePort
-	controlPort := ais.Spec.TargetSpec.IntraControlPort
-	dataPort := ais.Spec.TargetSpec.IntraDataPort
+	controlPort := ais.TargetIntraControlPort()
+	dataPort := ais.TargetIntraDataPort()
 	svc := ais.TargetHeadlessSVCNSName()
 	return corev1ac.Service(svc.Name, svc.Namespace).
 		WithOwnerReferences(ownerref.NewControllerRef(ais)).
@@ -72,7 +72,7 @@ func NewTargetHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguratio
 
 func NewTargetLoadBalancerSVC(ais *aisv1.AIStore, targetIndex int32) *corev1ac.ServiceApplyConfiguration {
 	servicePort := ais.Spec.TargetSpec.ServicePort
-	publicNetPort := ais.Spec.TargetSpec.PublicPort
+	publicNetPort := ais.TargetPublicPort()
 	selectors := SelectorLabels(ais)
 	selectors["statefulset.kubernetes.io/pod-name"] = PodName(ais, targetIndex)
 	return corev1ac.Service(loadBalancerSVCName(ais, targetIndex), ais.Namespace).

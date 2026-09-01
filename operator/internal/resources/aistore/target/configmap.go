@@ -36,14 +36,16 @@ func NewTargetCM(ais *aisv1.AIStore) (*corev1ac.ConfigMapApplyConfiguration, err
 }
 
 func buildLocalConf(ais *aisv1.AIStore) (string, error) {
-	serviceSpec := ais.Spec.TargetSpec.ServiceSpec
+	publicPort := ais.TargetPublicPort()
+	controlPort := ais.TargetIntraControlPort()
+	dataPort := ais.TargetIntraDataPort()
 	netConfig := aiscmn.LocalNetConfig{
 		Hostname:             "${AIS_PUBLIC_HOSTNAME}",
 		HostnameIntraControl: "${AIS_INTRA_HOSTNAME}",
 		HostnameIntraData:    "${AIS_DATA_HOSTNAME}",
-		Port:                 serviceSpec.PublicPort.IntValue(),
-		PortIntraControl:     serviceSpec.IntraControlPort.IntValue(),
-		PortIntraData:        serviceSpec.IntraDataPort.IntValue(),
+		Port:                 publicPort.IntValue(),
+		PortIntraControl:     controlPort.IntValue(),
+		PortIntraData:        dataPort.IntValue(),
 	}
 	return jsoniter.MarshalToString(templateLocalConf(&ais.Spec, &netConfig))
 }

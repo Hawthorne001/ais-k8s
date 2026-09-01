@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	aisapc "github.com/NVIDIA/aistore/api/apc"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -159,36 +160,24 @@ func (ais *AIStore) validateDeprecatedFields() (admission.Warnings, error) {
 	return append(warnings, ais.Spec.ConfigToUpdate.DeprecatedAuthMessages()...), nil
 }
 
-func (ss *ServiceSpec) validate(path *field.Path) field.ErrorList {
-	svcMsgs := validation.IsValidPortNum(ss.ServicePort.IntValue())
-	pubMsgs := validation.IsValidPortNum(ss.PublicPort.IntValue())
-	ctrlMsgs := validation.IsValidPortNum(ss.IntraControlPort.IntValue())
-	dataMsgs := validation.IsValidPortNum(ss.IntraDataPort.IntValue())
-
-	allErrs := make(field.ErrorList, 0, len(svcMsgs)+len(pubMsgs)+len(ctrlMsgs)+len(dataMsgs))
-	for _, msg := range svcMsgs {
-		allErrs = append(allErrs, field.Invalid(path.Child("servicePort"), ss.ServicePort.IntValue(), msg))
+func validatePorts(path *field.Path, ports *daemonPorts) field.ErrorList {
+	var allErrs field.ErrorList
+	appendPortErrs := func(name string, port intstr.IntOrString) {
+		for _, msg := range validation.IsValidPortNum(port.IntValue()) {
+			allErrs = append(allErrs, field.Invalid(path.Child(name), port.IntValue(), msg))
+		}
 	}
-	for _, msg := range pubMsgs {
-		allErrs = append(allErrs, field.Invalid(path.Child("portPublic"), ss.PublicPort.IntValue(), msg))
-	}
-	for _, msg := range ctrlMsgs {
-		allErrs = append(allErrs, field.Invalid(path.Child("portIntraControl"), ss.IntraControlPort.IntValue(), msg))
-	}
-	for _, msg := range dataMsgs {
-		allErrs = append(allErrs, field.Invalid(path.Child("portIntraData"), ss.IntraDataPort.IntValue(), msg))
-	}
+	appendPortErrs("servicePort", ports.service)
+	appendPortErrs("portPublic", ports.public)
+	appendPortErrs("portIntraControl", ports.intraControl)
+	appendPortErrs("portIntraData", ports.intraData)
 
 	return allErrs
 }
 
 func (ais *AIStore) validateServiceSpec() (admission.Warnings, error) {
-	proxyErrs := ais.Spec.ProxySpec.validate(field.NewPath("spec", "proxySpec"))
-	targetErrs := ais.Spec.TargetSpec.validate(field.NewPath("spec", "targetSpec"))
-
-	allErrs := make(field.ErrorList, 0, len(proxyErrs)+len(targetErrs))
-	allErrs = append(allErrs, proxyErrs...)
-	allErrs = append(allErrs, targetErrs...)
+	allErrs := validatePorts(field.NewPath("spec", "proxySpec"), ais.proxyPorts())
+	allErrs = append(allErrs, validatePorts(field.NewPath("spec", "targetSpec"), ais.targetPorts())...)
 
 	return nil, allErrs.ToAggregate()
 }

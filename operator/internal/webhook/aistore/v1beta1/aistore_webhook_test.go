@@ -20,6 +20,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -182,6 +183,86 @@ func TestValidateSpecUnchangedSpec(t *testing.T) {
 		_, err := aisw.validateSpec(context.Background(), legacy, &aisv1.AIStore{})
 		g.Expect(err).To(MatchError(ContainSubstring("cluster size is not specified")))
 	})
+}
+
+func TestValidateUpdatePorts(t *testing.T) {
+	proxyAIS := func(spec aisv1.ServiceSpec) *aisv1.AIStore {
+		spec.ServicePort = intstr.FromInt32(51080)
+		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{ProxySpec: aisv1.DaemonSpec{ServiceSpec: spec}}}
+	}
+	targetAIS := func(spec aisv1.ServiceSpec) *aisv1.AIStore {
+		spec.ServicePort = intstr.FromInt32(51081)
+		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{
+			TargetSpec: aisv1.TargetSpec{DaemonSpec: aisv1.DaemonSpec{ServiceSpec: spec}},
+		}}
+	}
+
+	daemons := []struct {
+		name string
+		// otherPublic is the peer daemon's public default, which must not satisfy this daemon's
+		otherPublic int32
+		public      int32
+		newAIS      func(aisv1.ServiceSpec) *aisv1.AIStore
+		validate    func(prev, ais *aisv1.AIStore) error
+	}{
+		{"proxy", 51081, 51080, proxyAIS, validateProxyUpdate},
+		{"target", 51080, 51081, targetAIS, validateTargetUpdate},
+	}
+
+	for _, d := range daemons {
+		explicitDefaults := aisv1.ServiceSpec{
+			PublicPort:       aisapc.Ptr(intstr.FromInt32(d.public)),
+			IntraControlPort: aisapc.Ptr(intstr.FromInt32(51082)),
+			IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51083)),
+		}
+		tests := []struct {
+			name    string
+			prev    *aisv1.AIStore
+			ais     *aisv1.AIStore
+			wantErr bool
+		}{
+			{
+				name: "dropping ports that match the defaults is allowed",
+				prev: d.newAIS(explicitDefaults),
+				ais:  d.newAIS(aisv1.ServiceSpec{}),
+			},
+			{
+				name:    "changing the public port is rejected",
+				prev:    d.newAIS(explicitDefaults),
+				ais:     d.newAIS(aisv1.ServiceSpec{PublicPort: aisapc.Ptr(intstr.FromInt32(51099))}),
+				wantErr: true,
+			},
+			{
+				name:    "dropping a public port matching the peer daemon default is rejected",
+				prev:    d.newAIS(aisv1.ServiceSpec{PublicPort: aisapc.Ptr(intstr.FromInt32(d.otherPublic))}),
+				ais:     d.newAIS(aisv1.ServiceSpec{}),
+				wantErr: true,
+			},
+			{
+				name:    "changing the intra-control port is rejected",
+				prev:    d.newAIS(explicitDefaults),
+				ais:     d.newAIS(aisv1.ServiceSpec{IntraControlPort: aisapc.Ptr(intstr.FromInt32(51099))}),
+				wantErr: true,
+			},
+			{
+				name:    "dropping an intra-data port that does not match the default is rejected",
+				prev:    d.newAIS(aisv1.ServiceSpec{IntraDataPort: aisapc.Ptr(intstr.FromInt32(51099))}),
+				ais:     d.newAIS(aisv1.ServiceSpec{}),
+				wantErr: true,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(d.name+"/"+tt.name, func(subT *testing.T) {
+				g := NewWithT(subT)
+				err := d.validate(tt.prev, tt.ais)
+				if tt.wantErr {
+					g.Expect(err).To(HaveOccurred())
+					return
+				}
+				g.Expect(err).ToNot(HaveOccurred())
+			})
+		}
+	}
 }
 
 func TestValidateStateStorageUpdate(t *testing.T) {

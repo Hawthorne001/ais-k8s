@@ -18,13 +18,13 @@ func newTestAIS() *aisv1.AIStore {
 		Spec: aisv1.AIStoreSpec{
 			ProxySpec: aisv1.DaemonSpec{
 				ServiceSpec: aisv1.ServiceSpec{
-					PublicPort: intstr.FromInt32(51080),
+					PublicPort: aisapc.Ptr(intstr.FromInt32(51080)),
 				},
 			},
 			TargetSpec: aisv1.TargetSpec{
 				DaemonSpec: aisv1.DaemonSpec{
 					ServiceSpec: aisv1.ServiceSpec{
-						PublicPort: intstr.FromInt32(51081),
+						PublicPort: aisapc.Ptr(intstr.FromInt32(51081)),
 					},
 				},
 			},

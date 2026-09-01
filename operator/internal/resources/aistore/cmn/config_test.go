@@ -305,9 +305,9 @@ var _ = Describe("Config", Label("short"), func() {
 				Spec: aisv1.AIStoreSpec{
 					ProxySpec: aisv1.DaemonSpec{
 						ServiceSpec: aisv1.ServiceSpec{
-							PublicPort:       intstr.FromString("51080"),
-							IntraControlPort: intstr.FromString("51081"),
-							IntraDataPort:    intstr.FromString("51082"),
+							PublicPort:       aisapc.Ptr(intstr.FromString("51080")),
+							IntraControlPort: aisapc.Ptr(intstr.FromString("51081")),
+							IntraDataPort:    aisapc.Ptr(intstr.FromString("51082")),
 						},
 					},
 					AWSSecretName: aisapc.Ptr("any-secret"),

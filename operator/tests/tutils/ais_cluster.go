@@ -194,9 +194,9 @@ func newAISClusterCR(args *ClusterSpecArgs, mounts []aisv1.Mount) *aisv1.AIStore
 		ProxySpec: aisv1.DaemonSpec{
 			ServiceSpec: aisv1.ServiceSpec{
 				ServicePort:      intstr.FromInt32(51080),
-				PublicPort:       intstr.FromInt32(51080),
-				IntraControlPort: intstr.FromInt32(51082),
-				IntraDataPort:    intstr.FromInt32(51083),
+				PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
+				IntraControlPort: aisapc.Ptr(intstr.FromInt32(51082)),
+				IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51083)),
 			},
 		},
 
@@ -204,9 +204,9 @@ func newAISClusterCR(args *ClusterSpecArgs, mounts []aisv1.Mount) *aisv1.AIStore
 			DaemonSpec: aisv1.DaemonSpec{
 				ServiceSpec: aisv1.ServiceSpec{
 					ServicePort:      intstr.FromInt32(51081),
-					PublicPort:       intstr.FromInt32(51081),
-					IntraControlPort: intstr.FromInt32(51082),
-					IntraDataPort:    intstr.FromInt32(51083),
+					PublicPort:       aisapc.Ptr(intstr.FromInt32(51081)),
+					IntraControlPort: aisapc.Ptr(intstr.FromInt32(51082)),
+					IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51083)),
 				},
 			},
 			Mounts:                 mounts,
