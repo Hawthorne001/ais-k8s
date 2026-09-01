@@ -33,7 +33,6 @@ auth:
 #   profileRef:
 #     name: ais-admin
 operatorSkipVerifyCrt:
-enableExternalLB: false
 publicNetDNSMode:
 logsDir:
 proxySpec:

@@ -456,7 +456,7 @@
       "examples": [false, true]
     },
     "enableExternalLB": {
-      "type": ["boolean"],
+      "type": ["boolean", "null"],
       "description": "Deprecated: enables operator-managed LoadBalancer services for proxies and targets. Prefer proxySpec.externalAccess and/or targetSpec.externalAccess.",
       "examples": [true, false]
     },
