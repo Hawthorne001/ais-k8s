@@ -315,6 +315,25 @@ var _ = Describe("AIStore", func() {
 					},
 					"spec.targetSpec.externalAccess.loadBalancer.port: Invalid value: 443: not supported",
 				),
+				Entry(
+					"target hostPort mismatch with publicPort when using hostNetwork",
+					AIStore{
+						Spec: AIStoreSpec{
+							Size: aisapc.Ptr[int32](1),
+							StateStorage: &StateStorage{
+								HostPath: &StateHostPathConfig{Prefix: "/mnt"},
+							},
+							TargetSpec: TargetSpec{
+								HostNetwork: aisapc.Ptr(true),
+								DaemonSpec: DaemonSpec{
+									HostPort: aisapc.Ptr[int32](51090),
+								},
+							},
+						},
+					},
+					"spec.targetSpec.hostPort: Invalid value: 51090: "+
+						"must match spec.targetSpec.portPublic when hostNetwork is enabled",
+				),
 			)
 
 			It("should pass AIStore validation", func() {
@@ -337,6 +356,29 @@ var _ = Describe("AIStore", func() {
 									PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
 									IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
 									IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),
+								},
+							},
+						},
+					},
+				}
+
+				_, err := ais.ValidateSpec(context.Background())
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should pass with a target hostPort matching publicPort when using hostNetwork", func() {
+				ais := AIStore{
+					Spec: AIStoreSpec{
+						Size: aisapc.Ptr[int32](1),
+						StateStorage: &StateStorage{
+							HostPath: &StateHostPathConfig{Prefix: "/mnt"},
+						},
+						TargetSpec: TargetSpec{
+							HostNetwork: aisapc.Ptr(true),
+							DaemonSpec: DaemonSpec{
+								HostPort: aisapc.Ptr[int32](51090),
+								ServiceSpec: ServiceSpec{
+									PublicPort: aisapc.Ptr(intstr.FromInt32(51090)),
 								},
 							},
 						},

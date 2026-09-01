@@ -44,6 +44,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
     - `portIntraData: 51083`
     - `servicePort` -- None, previous callers use `externalAccess.loadBalancer.port` or `portPublic`
     - The types of each of these in `ServiceSpec` are now pointers, which is a breaking change for any direct Go importers.
+  - When using `targetSpec.hostNetwork`, setting `targetSpec.hostPort` to a value other than `targetSpec.portPublic` (or the default) is invalid and is now rejected by the webhook.
 
 - Changes to AIStore client authentication config
   - `auth.enabled` is deprecated in favor of `auth.client_auth_required`.

@@ -27,6 +27,7 @@ func (ais *AIStore) ValidateSpec(_ context.Context) (admission.Warnings, error) 
 		ais.validateAutoScaling,
 		ais.validateServiceSpec,
 		ais.validateExternalAccess,
+		ais.validateHostPort,
 		ais.validateCleanupConfig,
 		ais.validateTLSCertPaths,
 		ais.validateSafeDecommission,
@@ -196,6 +197,23 @@ func (ais *AIStore) validateExternalAccess() (admission.Warnings, error) {
 		field.NewPath("spec", "targetSpec", "externalAccess", "loadBalancer", "port"),
 		*ea.LoadBalancer.Port,
 		"not supported; target LoadBalancers must listen on spec.targetSpec.portPublic",
+	)
+}
+
+func (ais *AIStore) validateHostPort() (admission.Warnings, error) {
+	hostPort := ais.Spec.TargetSpec.HostPort
+	if !ais.UseHostNetwork() || hostPort == nil {
+		return nil, nil
+	}
+	publicPort := ais.TargetPublicPort()
+	// K8s requires containerPort (set from publicPort) to equal hostPort when hostNetwork is true.
+	if publicPort.IntValue() == int(*hostPort) {
+		return nil, nil
+	}
+	return nil, field.Invalid(
+		field.NewPath("spec", "targetSpec", "hostPort"),
+		*hostPort,
+		"must match spec.targetSpec.portPublic when hostNetwork is enabled",
 	)
 }
 
