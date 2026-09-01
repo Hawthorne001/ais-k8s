@@ -23,7 +23,7 @@ func portOrDefault(port *intstr.IntOrString, def int32) intstr.IntOrString {
 
 // daemonPorts holds one daemon's ports with the defaults already applied.
 type daemonPorts struct {
-	service      intstr.IntOrString
+	service      *intstr.IntOrString
 	public       intstr.IntOrString
 	intraControl intstr.IntOrString
 	intraData    intstr.IntOrString
@@ -45,6 +45,17 @@ func (ais *AIStore) targetPorts() *daemonPorts {
 		intraControl: ais.TargetIntraControlPort(),
 		intraData:    ais.TargetIntraDataPort(),
 	}
+}
+
+func externalPortOrDefault(spec *DaemonSpec, publicPort intstr.IntOrString) intstr.IntOrString {
+	if ea := spec.ExternalAccess; ea != nil && ea.LoadBalancer != nil && ea.LoadBalancer.Port != nil {
+		return intstr.FromInt32(*ea.LoadBalancer.Port)
+	}
+	// Keep pre-existing LoadBalancers on the port servicePort published.
+	if spec.ServicePort != nil {
+		return *spec.ServicePort
+	}
+	return publicPort
 }
 
 // ProxyPublicPort returns the container port the proxy process listens on for the public network.
@@ -79,4 +90,14 @@ func (ais *AIStore) TargetIntraControlPort() intstr.IntOrString {
 // intra-cluster data network.
 func (ais *AIStore) TargetIntraDataPort() intstr.IntOrString {
 	return portOrDefault(ais.Spec.TargetSpec.IntraDataPort, DefaultIntraDataPort)
+}
+
+// ProxyExternalPort returns the port the proxy LoadBalancer service listens on.
+func (ais *AIStore) ProxyExternalPort() intstr.IntOrString {
+	return externalPortOrDefault(&ais.Spec.ProxySpec, ais.ProxyPublicPort())
+}
+
+// TargetExternalPort returns the port the target LoadBalancer services listen on.
+func (ais *AIStore) TargetExternalPort() intstr.IntOrString {
+	return externalPortOrDefault(&ais.Spec.TargetSpec.DaemonSpec, ais.TargetPublicPort())
 }

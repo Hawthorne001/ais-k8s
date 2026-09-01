@@ -187,11 +187,9 @@ func TestValidateSpecUnchangedSpec(t *testing.T) {
 
 func TestValidateUpdatePorts(t *testing.T) {
 	proxyAIS := func(spec aisv1.ServiceSpec) *aisv1.AIStore {
-		spec.ServicePort = intstr.FromInt32(51080)
 		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{ProxySpec: aisv1.DaemonSpec{ServiceSpec: spec}}}
 	}
 	targetAIS := func(spec aisv1.ServiceSpec) *aisv1.AIStore {
-		spec.ServicePort = intstr.FromInt32(51081)
 		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{
 			TargetSpec: aisv1.TargetSpec{DaemonSpec: aisv1.DaemonSpec{ServiceSpec: spec}},
 		}}
@@ -263,6 +261,42 @@ func TestValidateUpdatePorts(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestValidateProxyUpdateExternalAccess(t *testing.T) {
+	proxy := func(ea *aisv1.ExternalAccessSpec) *aisv1.AIStore {
+		return &aisv1.AIStore{Spec: aisv1.AIStoreSpec{ProxySpec: aisv1.DaemonSpec{ExternalAccess: ea}}}
+	}
+
+	t.Run("retuning an enabled LoadBalancer is allowed", func(subT *testing.T) {
+		g := NewWithT(subT)
+		g.Expect(validateProxyUpdate(
+			proxy(&aisv1.ExternalAccessSpec{}),
+			proxy(&aisv1.ExternalAccessSpec{
+				LoadBalancer: &aisv1.LoadBalancerSpec{Port: aisapc.Ptr[int32](443)},
+			}),
+		)).To(Succeed())
+	})
+
+	t.Run("removing the LoadBalancer block is allowed", func(subT *testing.T) {
+		g := NewWithT(subT)
+		g.Expect(validateProxyUpdate(
+			proxy(&aisv1.ExternalAccessSpec{
+				LoadBalancer: &aisv1.LoadBalancerSpec{Port: aisapc.Ptr[int32](443)},
+			}),
+			proxy(&aisv1.ExternalAccessSpec{}),
+		)).To(Succeed())
+	})
+
+	t.Run("enabling external access is rejected", func(subT *testing.T) {
+		g := NewWithT(subT)
+		g.Expect(validateProxyUpdate(proxy(nil), proxy(&aisv1.ExternalAccessSpec{}))).To(HaveOccurred())
+	})
+
+	t.Run("disabling external access is rejected", func(subT *testing.T) {
+		g := NewWithT(subT)
+		g.Expect(validateProxyUpdate(proxy(&aisv1.ExternalAccessSpec{}), proxy(nil))).To(HaveOccurred())
+	})
 }
 
 func TestValidateStateStorageUpdate(t *testing.T) {

@@ -217,6 +217,52 @@ func TestValidateShutdownWithEmptyDir(t *testing.T) {
 	}
 }
 
+func TestValidateExternalAccess(t *testing.T) {
+	lbPort := func(port int32) *ExternalAccessSpec {
+		return &ExternalAccessSpec{LoadBalancer: &LoadBalancerSpec{Port: aisapc.Ptr(port)}}
+	}
+	tests := []struct {
+		name   string
+		proxy  *ExternalAccessSpec
+		target *ExternalAccessSpec
+		// wantErrMsgs are substrings the rejection must name
+		wantErrMsgs []string
+	}{
+		{name: "no external access"},
+		{name: "target external access without a LoadBalancer", target: &ExternalAccessSpec{}},
+		{name: "target LoadBalancer without a port", target: &ExternalAccessSpec{LoadBalancer: &LoadBalancerSpec{}}},
+		{name: "proxy LoadBalancer port", proxy: lbPort(443)},
+		{
+			name:        "target LoadBalancer port",
+			target:      lbPort(443),
+			wantErrMsgs: []string{"spec.targetSpec.externalAccess.loadBalancer.port", "443", "spec.targetSpec.portPublic"},
+		},
+		{
+			name:        "target LoadBalancer port alongside a proxy port",
+			proxy:       lbPort(443),
+			target:      lbPort(8443),
+			wantErrMsgs: []string{"spec.targetSpec.externalAccess.loadBalancer.port", "8443"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(subT *testing.T) {
+			g := NewWithT(subT)
+			ais := &AIStore{}
+			ais.Spec.ProxySpec.ExternalAccess = tt.proxy
+			ais.Spec.TargetSpec.ExternalAccess = tt.target
+			warnings, err := ais.validateExternalAccess()
+			g.Expect(warnings).To(BeEmpty())
+			if len(tt.wantErrMsgs) == 0 {
+				g.Expect(err).NotTo(HaveOccurred())
+				return
+			}
+			for _, msg := range tt.wantErrMsgs {
+				g.Expect(err).To(MatchError(ContainSubstring(msg)))
+			}
+		})
+	}
+}
+
 func TestValidateTLSCertPaths(t *testing.T) {
 	tests := []struct {
 		name    string

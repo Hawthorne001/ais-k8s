@@ -95,7 +95,6 @@ func (cc *clientCluster) applyHostPortOffset(offset int32) {
 	publicPorts := []intstr.IntOrString{cc.cluster.ProxyPublicPort(), cc.cluster.TargetPublicPort()}
 	for i := range specs {
 		specs[i].HostPort = aisapc.Ptr(*specs[i].HostPort + offset)
-		specs[i].ServicePort = intstr.FromInt32(specs[i].ServicePort.IntVal + offset)
 		specs[i].PublicPort = aisapc.Ptr(intstr.FromInt32(int32(publicPorts[i].IntValue()) + offset))
 	}
 }
@@ -298,7 +297,7 @@ func (cc *clientCluster) getProxyURL(ctx context.Context) (proxyURL string) {
 		ip = tutils.GetRandomProxyIP(ctx, cc.k8sClient, cc.cluster)
 	}
 	Expect(ip).NotTo(Equal(""))
-	return fmt.Sprintf(urlTemplate, ip, cc.cluster.Spec.ProxySpec.ServicePort.String())
+	return fmt.Sprintf(urlTemplate, ip, cc.proxyPort())
 }
 
 func (cc *clientCluster) getAllProxyURLs(ctx context.Context) (proxyURLs []*string) {
@@ -309,10 +308,19 @@ func (cc *clientCluster) getAllProxyURLs(ctx context.Context) (proxyURLs []*stri
 		proxyIPs = tutils.GetAllProxyIPs(ctx, cc.k8sClient, cc.cluster)
 	}
 	for _, ip := range proxyIPs {
-		proxyURL := fmt.Sprintf(urlTemplate, ip, cc.cluster.Spec.ProxySpec.ServicePort.String())
+		proxyURL := fmt.Sprintf(urlTemplate, ip, cc.proxyPort())
 		proxyURLs = append(proxyURLs, &proxyURL)
 	}
 	return proxyURLs
+}
+
+// proxyPort returns the port clients outside the cluster use to reach a proxy.
+func (cc *clientCluster) proxyPort() string {
+	port := cc.cluster.ProxyPublicPort()
+	if cc.cluster.ProxyExternalAccessEnabled() {
+		port = cc.cluster.ProxyExternalPort()
+	}
+	return port.String()
 }
 
 func (cc *clientCluster) destroyCleanupWithCallback(postDestroy func()) {

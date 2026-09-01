@@ -3335,6 +3335,21 @@ spec:
                           Annotations are merged onto the created service(s)
                           (for example cloud provider or external-dns annotations).
                         type: object
+                      loadBalancer:
+                        description: LoadBalancer tunes the LoadBalancer services.
+                          Omit it to accept the defaults.
+                        properties:
+                          port:
+                            description: |-
+                              Port is the port the LoadBalancer service listens on. Defaults to the daemon's portPublic.
+                              Supported on proxies only.
+                              Proxies redirect requests to the target's public port, so the target load balancer port
+                              must remain equal to the target's public port.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
                     type: object
                   hostPort:
                     description: HostPort - Port to bind directly to a specific port
@@ -3818,8 +3833,6 @@ spec:
                           type: string
                       type: object
                     type: array
-                required:
-                - servicePort
                 type: object
               publicNetDNSMode:
                 default: IP
@@ -5202,6 +5215,21 @@ spec:
                           Annotations are merged onto the created service(s)
                           (for example cloud provider or external-dns annotations).
                         type: object
+                      loadBalancer:
+                        description: LoadBalancer tunes the LoadBalancer services.
+                          Omit it to accept the defaults.
+                        properties:
+                          port:
+                            description: |-
+                              Port is the port the LoadBalancer service listens on. Defaults to the daemon's portPublic.
+                              Supported on proxies only.
+                              Proxies redirect requests to the target's public port, so the target load balancer port
+                              must remain equal to the target's public port.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
                     type: object
                   hostNetwork:
                     description: hostNetwork - if set to true, the AIS Daemon pods
@@ -5806,7 +5834,6 @@ spec:
                     type: array
                 required:
                 - mounts
-                - servicePort
                 type: object
               tls:
                 description: TLS configures TLS certificate provisioning

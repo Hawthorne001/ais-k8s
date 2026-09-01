@@ -165,7 +165,8 @@ func (m *AISClientManager) getAISAPIEndpoint(ctx context.Context,
 		if hostname == "" {
 			return "", fmt.Errorf("proxy load balancer svc %q has no ingress IP or hostname", proxy.LoadBalancerSVCNSName(ais))
 		}
-		return cmn.AISHostURL(ais, hostname, ais.Spec.ProxySpec.ServicePort.String()), nil
+		externalPort := ais.ProxyExternalPort()
+		return cmn.AISHostURL(ais, hostname, externalPort.String()), nil
 	// When operator is deployed within K8s cluster with no external LoadBalancer,
 	// use the proxy headless service to request the API.
 	default:

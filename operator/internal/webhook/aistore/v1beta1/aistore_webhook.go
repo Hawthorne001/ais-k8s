@@ -201,6 +201,10 @@ func allowDaemonSpecUpdates(prev, spec *aisv1.DaemonSpec) {
 	prev.PVCRetentionPolicy = spec.PVCRetentionPolicy
 	prev.Probes = spec.Probes
 	prev.Tolerations = spec.Tolerations
+	// Retuning an existing LoadBalancer is safe; toggling external access on or off is not.
+	if prev.ExternalAccess != nil && spec.ExternalAccess != nil {
+		prev.ExternalAccess = spec.ExternalAccess
+	}
 }
 
 // allowProxyPortUpdates copies proxy port fields whose port number is unchanged once defaults are

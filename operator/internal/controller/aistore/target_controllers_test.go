@@ -150,7 +150,6 @@ var _ = Describe("scaleDownMode", func() {
 				ProxySpec: aisv1.DaemonSpec{
 					Size: apc.Ptr[int32](1),
 					ServiceSpec: aisv1.ServiceSpec{
-						ServicePort:      intstr.FromInt32(51080),
 						PublicPort:       apc.Ptr(intstr.FromInt32(51081)),
 						IntraControlPort: apc.Ptr(intstr.FromInt32(51082)),
 						IntraDataPort:    apc.Ptr(intstr.FromInt32(51083)),
@@ -160,7 +159,6 @@ var _ = Describe("scaleDownMode", func() {
 					DaemonSpec: aisv1.DaemonSpec{
 						Size: apc.Ptr[int32](2),
 						ServiceSpec: aisv1.ServiceSpec{
-							ServicePort:      intstr.FromInt32(51080),
 							PublicPort:       apc.Ptr(intstr.FromInt32(51081)),
 							IntraControlPort: apc.Ptr(intstr.FromInt32(51082)),
 							IntraDataPort:    apc.Ptr(intstr.FromInt32(51083)),

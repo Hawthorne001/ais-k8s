@@ -26,6 +26,7 @@ func (ais *AIStore) ValidateSpec(_ context.Context) (admission.Warnings, error) 
 		ais.validateShutdownWithEmptyDir,
 		ais.validateAutoScaling,
 		ais.validateServiceSpec,
+		ais.validateExternalAccess,
 		ais.validateCleanupConfig,
 		ais.validateTLSCertPaths,
 		ais.validateSafeDecommission,
@@ -167,7 +168,9 @@ func validatePorts(path *field.Path, ports *daemonPorts) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(path.Child(name), port.IntValue(), msg))
 		}
 	}
-	appendPortErrs("servicePort", ports.service)
+	if ports.service != nil {
+		appendPortErrs("servicePort", *ports.service)
+	}
 	appendPortErrs("portPublic", ports.public)
 	appendPortErrs("portIntraControl", ports.intraControl)
 	appendPortErrs("portIntraData", ports.intraData)
@@ -180,6 +183,20 @@ func (ais *AIStore) validateServiceSpec() (admission.Warnings, error) {
 	allErrs = append(allErrs, validatePorts(field.NewPath("spec", "targetSpec"), ais.targetPorts())...)
 
 	return nil, allErrs.ToAggregate()
+}
+
+func (ais *AIStore) validateExternalAccess() (admission.Warnings, error) {
+	ea := ais.Spec.TargetSpec.ExternalAccess
+	if ea == nil || ea.LoadBalancer == nil || ea.LoadBalancer.Port == nil {
+		return nil, nil
+	}
+	// Reject a LoadBalancer port on targets.
+	// Proxies redirect clients to the target address AIS advertises, which is always portPublic.
+	return nil, field.Invalid(
+		field.NewPath("spec", "targetSpec", "externalAccess", "loadBalancer", "port"),
+		*ea.LoadBalancer.Port,
+		"not supported; target LoadBalancers must listen on spec.targetSpec.portPublic",
+	)
 }
 
 // validateTLSCertPaths rejects specs that set both spec.tls and any of the cert path

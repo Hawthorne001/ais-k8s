@@ -66,7 +66,7 @@ func NewProxyHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration
 }
 
 func NewProxyLoadBalancerSVC(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguration {
-	servicePort := ais.Spec.ProxySpec.ServicePort
+	externalPort := ais.ProxyExternalPort()
 	publicNetPort := ais.ProxyPublicPort()
 	return corev1ac.Service(loadBalancerSVCName(ais), ais.Namespace).
 		WithOwnerReferences(ownerref.NewControllerRef(ais)).
@@ -78,7 +78,7 @@ func NewProxyLoadBalancerSVC(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfigura
 				corev1ac.ServicePort().
 					WithName("pub").
 					WithProtocol(corev1.ProtocolTCP).
-					WithPort(int32(servicePort.IntValue())).
+					WithPort(int32(externalPort.IntValue())).
 					WithTargetPort(publicNetPort),
 			).
 			WithSelector(SelectorLabels(ais)),

@@ -44,4 +44,45 @@ var _ = Describe("Ports", func() {
 			Expect(ais.ProxyPublicPort()).To(Equal(intstr.FromInt32(0)))
 		})
 	})
+
+	Describe("External port", func() {
+		It("should default to the public port", func() {
+			ais := AIStore{Spec: AIStoreSpec{
+				ProxySpec: DaemonSpec{ExternalAccess: &ExternalAccessSpec{}},
+			}}
+			Expect(ais.ProxyExternalPort()).To(Equal(intstr.FromInt32(51080)))
+		})
+
+		It("should use the LoadBalancer port when set", func() {
+			ais := AIStore{Spec: AIStoreSpec{
+				ProxySpec: DaemonSpec{ExternalAccess: &ExternalAccessSpec{
+					LoadBalancer: &LoadBalancerSpec{Port: aisapc.Ptr[int32](443)},
+				}},
+			}}
+			Expect(ais.ProxyExternalPort()).To(Equal(intstr.FromInt32(443)))
+		})
+
+		// Existing clusters published the LoadBalancer on servicePort.
+		It("should fall back to servicePort", func() {
+			ais := AIStore{Spec: AIStoreSpec{
+				TargetSpec: TargetSpec{DaemonSpec: DaemonSpec{
+					ServiceSpec:    ServiceSpec{ServicePort: aisapc.Ptr(intstr.FromInt32(51080))},
+					ExternalAccess: &ExternalAccessSpec{},
+				}},
+			}}
+			Expect(ais.TargetExternalPort()).To(Equal(intstr.FromInt32(51080)))
+		})
+
+		It("should prefer the LoadBalancer port over servicePort", func() {
+			ais := AIStore{Spec: AIStoreSpec{
+				ProxySpec: DaemonSpec{
+					ServiceSpec: ServiceSpec{ServicePort: aisapc.Ptr(intstr.FromInt32(51080))},
+					ExternalAccess: &ExternalAccessSpec{
+						LoadBalancer: &LoadBalancerSpec{Port: aisapc.Ptr[int32](443)},
+					},
+				},
+			}}
+			Expect(ais.ProxyExternalPort()).To(Equal(intstr.FromInt32(443)))
+		})
+	})
 })

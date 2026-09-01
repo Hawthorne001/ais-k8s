@@ -244,6 +244,11 @@ var _ = Describe("AIStore", func() {
 							StateStorage: &StateStorage{
 								HostPath: &StateHostPathConfig{Prefix: "/mnt"},
 							},
+							ProxySpec: DaemonSpec{
+								ServiceSpec: ServiceSpec{
+									ServicePort: aisapc.Ptr(intstr.FromInt32(0)),
+								},
+							},
 						},
 					},
 					"spec.proxySpec.servicePort: Invalid value: 0: must be between 1 and 65535",
@@ -258,10 +263,16 @@ var _ = Describe("AIStore", func() {
 							},
 							ProxySpec: DaemonSpec{
 								ServiceSpec: ServiceSpec{
-									ServicePort:      intstr.FromInt32(51080),
 									PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
 									IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
 									IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),
+								},
+							},
+							TargetSpec: TargetSpec{
+								DaemonSpec: DaemonSpec{
+									ServiceSpec: ServiceSpec{
+										ServicePort: aisapc.Ptr(intstr.FromInt32(0)),
+									},
 								},
 							},
 						},
@@ -278,18 +289,31 @@ var _ = Describe("AIStore", func() {
 							},
 							ProxySpec: DaemonSpec{
 								ServiceSpec: ServiceSpec{
-									ServicePort: intstr.FromInt32(51080),
-									PublicPort:  aisapc.Ptr(intstr.FromInt32(0)),
-								},
-							},
-							TargetSpec: TargetSpec{
-								DaemonSpec: DaemonSpec{
-									ServiceSpec: ServiceSpec{ServicePort: intstr.FromInt32(51081)},
+									PublicPort: aisapc.Ptr(intstr.FromInt32(0)),
 								},
 							},
 						},
 					},
 					"spec.proxySpec.portPublic: Invalid value: 0: must be between 1 and 65535",
+				),
+				Entry(
+					"target LoadBalancer port",
+					AIStore{
+						Spec: AIStoreSpec{
+							Size: aisapc.Ptr[int32](1),
+							StateStorage: &StateStorage{
+								HostPath: &StateHostPathConfig{Prefix: "/mnt"},
+							},
+							TargetSpec: TargetSpec{
+								DaemonSpec: DaemonSpec{
+									ExternalAccess: &ExternalAccessSpec{
+										LoadBalancer: &LoadBalancerSpec{Port: aisapc.Ptr[int32](443)},
+									},
+								},
+							},
+						},
+					},
+					"spec.targetSpec.externalAccess.loadBalancer.port: Invalid value: 443: not supported",
 				),
 			)
 
@@ -302,7 +326,6 @@ var _ = Describe("AIStore", func() {
 						},
 						ProxySpec: DaemonSpec{
 							ServiceSpec: ServiceSpec{
-								ServicePort:      intstr.FromInt32(51080),
 								PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
 								IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
 								IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),
@@ -311,7 +334,6 @@ var _ = Describe("AIStore", func() {
 						TargetSpec: TargetSpec{
 							DaemonSpec: DaemonSpec{
 								ServiceSpec: ServiceSpec{
-									ServicePort:      intstr.FromInt32(51080),
 									PublicPort:       aisapc.Ptr(intstr.FromInt32(51080)),
 									IntraControlPort: aisapc.Ptr(intstr.FromInt32(51081)),
 									IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51082)),

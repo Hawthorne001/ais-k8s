@@ -71,7 +71,7 @@ func NewTargetHeadlessSvc(ais *aisv1.AIStore) *corev1ac.ServiceApplyConfiguratio
 }
 
 func NewTargetLoadBalancerSVC(ais *aisv1.AIStore, targetIndex int32) *corev1ac.ServiceApplyConfiguration {
-	servicePort := ais.Spec.TargetSpec.ServicePort
+	externalPort := ais.TargetExternalPort()
 	publicNetPort := ais.TargetPublicPort()
 	selectors := SelectorLabels(ais)
 	selectors["statefulset.kubernetes.io/pod-name"] = PodName(ais, targetIndex)
@@ -85,7 +85,7 @@ func NewTargetLoadBalancerSVC(ais *aisv1.AIStore, targetIndex int32) *corev1ac.S
 				corev1ac.ServicePort().
 					WithName("pub").
 					WithProtocol(corev1.ProtocolTCP).
-					WithPort(int32(servicePort.IntValue())).
+					WithPort(int32(externalPort.IntValue())).
 					WithTargetPort(publicNetPort),
 			).
 			WithSelector(selectors),

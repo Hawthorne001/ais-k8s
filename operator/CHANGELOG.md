@@ -13,10 +13,14 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 ### Added 
 
 - `AIS_CLUSTER_NAME` now provided as an environment variable to all AIS pods, set to the AIStore resource name. 
-- `AIStoreAuthProfile`
-  - Webhook validation rejects requests with user info in `spec.serviceURL`
+- `externalAccess.loadBalancer.port` to specify the port for proxy LoadBalancer services used for external access. 
+  - Note that customizing the port for target LB services is not yet supported, because proxies redirect requests to the target's public port. 
 - Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth` options.
 - `spec.configToUpdate.auth.oidc.jwks_cache` to tune JWKS cache refresh intervals.
+
+- `AIStoreAuthProfile`
+  - Webhook validation rejects requests with user info in `spec.serviceURL`
+
 - `AIStoreAuth`
   - Support for `spec.deployment.pod.annotations` to set custom annotations on the AuthN Deployment pod template.
   - Webhook validation rejects specs when neither `spec.adminSecret` nor `spec.deployment.pod.annotations` are set.
@@ -38,6 +42,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
     - Target `portPublic: 51081`
     - `portIntraControl: 51082`
     - `portIntraData: 51083`
+    - `servicePort` -- None, previous callers use `externalAccess.loadBalancer.port` or `portPublic`
     - The types of each of these in `ServiceSpec` are now pointers, which is a breaking change for any direct Go importers.
 
 - Changes to AIStore client authentication config

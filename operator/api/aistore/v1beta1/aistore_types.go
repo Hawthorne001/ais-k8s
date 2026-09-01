@@ -92,6 +92,22 @@ type ExternalAccessSpec struct {
 	// (for example cloud provider or external-dns annotations).
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// LoadBalancer tunes the LoadBalancer services. Omit it to accept the defaults.
+	// +optional
+	LoadBalancer *LoadBalancerSpec `json:"loadBalancer,omitempty"`
+}
+
+// LoadBalancerSpec configures external access through a LoadBalancer service.
+type LoadBalancerSpec struct {
+	// Port is the port the LoadBalancer service listens on. Defaults to the daemon's portPublic.
+	// Supported on proxies only.
+	// Proxies redirect requests to the target's public port, so the target load balancer port
+	// must remain equal to the target's public port.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port *int32 `json:"port,omitempty"`
 }
 
 // PubNetDNSMode defines allowed values for publicNetDNSMode spec option
@@ -466,7 +482,8 @@ type AutoScaleStatus struct {
 
 // ServiceSpec defines the specs of AIS Gateways
 type ServiceSpec struct {
-	ServicePort intstr.IntOrString `json:"servicePort"`
+	// +optional
+	ServicePort *intstr.IntOrString `json:"servicePort,omitempty"`
 	// PublicPort is the container port the AIS proxy or target process listens on for the public network.
 	// Defaults to 51080 on proxies and 51081 on targets.
 	// +optional
