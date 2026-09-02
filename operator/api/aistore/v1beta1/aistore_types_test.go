@@ -388,6 +388,49 @@ var _ = Describe("AIStore", func() {
 				_, err := ais.ValidateSpec(context.Background())
 				Expect(err).ToNot(HaveOccurred())
 			})
+
+			It("should not warn when servicePort is unset", func() {
+				ais := AIStore{
+					Spec: AIStoreSpec{
+						Size: aisapc.Ptr[int32](1),
+						StateStorage: &StateStorage{
+							HostPath: &StateHostPathConfig{Prefix: "/mnt"},
+						},
+					},
+				}
+
+				warnings, err := ais.ValidateSpec(context.Background())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(warnings).ToNot(ContainElement(ContainSubstring("servicePort")))
+			})
+
+			It("should warn when servicePort is set", func() {
+				ais := AIStore{
+					Spec: AIStoreSpec{
+						Size: aisapc.Ptr[int32](1),
+						StateStorage: &StateStorage{
+							HostPath: &StateHostPathConfig{Prefix: "/mnt"},
+						},
+						ProxySpec: DaemonSpec{
+							ServiceSpec: ServiceSpec{
+								ServicePort: aisapc.Ptr(intstr.FromInt32(51080)),
+							},
+						},
+						TargetSpec: TargetSpec{
+							DaemonSpec: DaemonSpec{
+								ServiceSpec: ServiceSpec{
+									ServicePort: aisapc.Ptr(intstr.FromInt32(51081)),
+								},
+							},
+						},
+					},
+				}
+
+				warnings, err := ais.ValidateSpec(context.Background())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(warnings).To(ContainElement(ContainSubstring("spec.proxySpec.servicePort is deprecated")))
+				Expect(warnings).To(ContainElement(ContainSubstring("spec.targetSpec.servicePort is deprecated")))
+			})
 		})
 	})
 

@@ -28,13 +28,15 @@ spec:
   initImage: "docker.io/aistorage/ais-init:latest"
 
   proxySpec:
-    servicePort: 51080
+    # Deprecated in v4.0.0
+    # servicePort: 51080
     portPublic: 51080
     portIntraControl: 51082
     portIntraData: 51083
 
   targetSpec:
-    servicePort: 51081
+    # Deprecated in v4.0.0
+    # servicePort: 51081
     portPublic: 51081
     portIntraControl: 51082
     portIntraData: 51083
@@ -72,13 +74,15 @@ spec:
   initImage: "docker.io/aistorage/ais-init:latest"
 
   proxySpec:
-    servicePort: 51080
+    # Deprecated in v4.0.0
+    # servicePort: 51080
     portPublic: 51080
     portIntraControl: 51082
     portIntraData: 51083
 
   targetSpec:
-    servicePort: 51081
+    # Deprecated in v4.0.0
+    # servicePort: 51081
     portPublic: 51081
     portIntraControl: 51082
     portIntraData: 51083
@@ -123,13 +127,15 @@ spec:
   initImage: "docker.io/aistorage/ais-init:latest"
 
   proxySpec:
-    servicePort: 51080
+    # Deprecated in v4.0.0
+    # servicePort: 51080
     portPublic: 51080
     portIntraControl: 51082
     portIntraData: 51083
 
   targetSpec:
-    servicePort: 51081
+    # Deprecated in v4.0.0
+    # servicePort: 51081
     portPublic: 51081
     portIntraControl: 51082
     portIntraData: 51083

@@ -3782,6 +3782,9 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      Deprecated: use portPublic for the port the daemon binds, and
+                      externalAccess.loadBalancer.port for the port a proxy LoadBalancer publishes.
                     x-kubernetes-int-or-string: true
                   size:
                     description: |-
@@ -5775,6 +5778,9 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: |-
+                      Deprecated: use portPublic for the port the daemon binds, and
+                      externalAccess.loadBalancer.port for the port a proxy LoadBalancer publishes.
                     x-kubernetes-int-or-string: true
                   size:
                     description: |-

@@ -201,6 +201,9 @@ func allowDaemonSpecUpdates(prev, spec *aisv1.DaemonSpec) {
 	prev.PVCRetentionPolicy = spec.PVCRetentionPolicy
 	prev.Probes = spec.Probes
 	prev.Tolerations = spec.Tolerations
+	if spec.ServicePort == nil { //nolint:staticcheck // clearing the deprecated option must be allowed
+		prev.ServicePort = nil //nolint:staticcheck // clearing the deprecated option must be allowed
+	}
 	// Retuning an existing LoadBalancer is safe; toggling external access on or off is not.
 	if prev.ExternalAccess != nil && spec.ExternalAccess != nil {
 		prev.ExternalAccess = spec.ExternalAccess

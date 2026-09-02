@@ -101,3 +101,16 @@ func (ais *AIStore) ProxyExternalPort() intstr.IntOrString {
 func (ais *AIStore) TargetExternalPort() intstr.IntOrString {
 	return externalPortOrDefault(&ais.Spec.TargetSpec.DaemonSpec, ais.TargetPublicPort())
 }
+
+// DeprecatedPortMessages returns a message for each deprecated port option set.
+func (s *AIStoreSpec) DeprecatedPortMessages() []string {
+	var msgs []string
+	if s.ProxySpec.ServicePort != nil {
+		msgs = append(msgs, "spec.proxySpec.servicePort is deprecated, use spec.proxySpec.portPublic "+
+			"and spec.proxySpec.externalAccess.loadBalancer.port")
+	}
+	if s.TargetSpec.ServicePort != nil {
+		msgs = append(msgs, "spec.targetSpec.servicePort is deprecated, use spec.targetSpec.portPublic")
+	}
+	return msgs
+}

@@ -159,6 +159,7 @@ func (ais *AIStore) validateAuthConfig() (admission.Warnings, error) {
 // validateDeprecatedFields warns on spec fields that are slated for removal.
 func (ais *AIStore) validateDeprecatedFields() (admission.Warnings, error) {
 	warnings := ais.Spec.DeprecatedStateStorageMessages()
+	warnings = append(warnings, ais.Spec.DeprecatedPortMessages()...)
 	return append(warnings, ais.Spec.ConfigToUpdate.DeprecatedAuthMessages()...), nil
 }
 

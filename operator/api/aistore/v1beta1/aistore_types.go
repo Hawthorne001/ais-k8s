@@ -482,6 +482,8 @@ type AutoScaleStatus struct {
 
 // ServiceSpec defines the specs of AIS Gateways
 type ServiceSpec struct {
+	// Deprecated: use portPublic for the port the daemon binds, and
+	// externalAccess.loadBalancer.port for the port a proxy LoadBalancer publishes.
 	// +optional
 	ServicePort *intstr.IntOrString `json:"servicePort,omitempty"`
 	// PublicPort is the container port the AIS proxy or target process listens on for the public network.

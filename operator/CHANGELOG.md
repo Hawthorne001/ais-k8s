@@ -57,10 +57,19 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
     - Set `spec.configToUpdate.auth.enabled` for AIStore versions before v5.0.0.
     - Set `spec.configToUpdate.auth.client_auth_required` for AIStore versions v5.0.0 and newer.
 
+### Deprecated
+
 - `stateStorageClass` and `hostpathPrefix`, deprecated in v3.0.0, are rejected on cluster creation and on any spec update.
   - Use `stateStorage.pvc.storageClass` and `stateStorage.hostPath.prefix`, respectively.
   - Existing clusters keep reconciling with the value they already have, and moving it to `stateStorage` does not roll pods. Migrate before editing anything else in the spec.
   - Both options will be removed in a later release.
+
+- `spec.proxySpec.servicePort` and `spec.targetSpec.servicePort`, warned on cluster creation and on any spec update.
+  - Use `proxySpec.externalAccess.loadBalancer.port` for the port a proxy LoadBalancer publishes.
+  - See `Port mapping changes` above for other usages.
+  - Existing clusters keep reconciling with the value they already have, and clearing it does not roll pods.
+  - When set, `servicePort` still provides the default for `externalAccess.loadBalancer.port` so existing LoadBalancers keep their published port.
+  - Changing `servicePort` to a non-empty value will be rejected, only removal is allowed.
 
 ### Removed
 

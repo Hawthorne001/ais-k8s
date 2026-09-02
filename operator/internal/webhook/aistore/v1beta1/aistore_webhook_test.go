@@ -213,6 +213,8 @@ func TestValidateUpdatePorts(t *testing.T) {
 			IntraControlPort: aisapc.Ptr(intstr.FromInt32(51082)),
 			IntraDataPort:    aisapc.Ptr(intstr.FromInt32(51083)),
 		}
+		legacy := explicitDefaults
+		legacy.ServicePort = aisapc.Ptr(intstr.FromInt32(d.public)) //nolint:staticcheck // exercising the migration off the deprecated option
 		tests := []struct {
 			name    string
 			prev    *aisv1.AIStore
@@ -222,6 +224,17 @@ func TestValidateUpdatePorts(t *testing.T) {
 			{
 				name: "dropping ports that match the defaults is allowed",
 				prev: d.newAIS(explicitDefaults),
+				ais:  d.newAIS(aisv1.ServiceSpec{}),
+			},
+			{
+				name:    "changing the deprecated servicePort is rejected",
+				prev:    d.newAIS(legacy),
+				ais:     d.newAIS(aisv1.ServiceSpec{ServicePort: aisapc.Ptr(intstr.FromInt(51090))}),
+				wantErr: true,
+			},
+			{
+				name: "dropping the deprecated servicePort is allowed",
+				prev: d.newAIS(legacy),
 				ais:  d.newAIS(aisv1.ServiceSpec{}),
 			},
 			{
