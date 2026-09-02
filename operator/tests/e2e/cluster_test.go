@@ -637,7 +637,7 @@ var _ = Describe("Run Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(failCnt).To(Equal(0))
 			By("Destroy cluster and delete PVs")
-			cc.destroyAndCleanup()
+			cc.destroy(true /*cleanupPVs*/)
 			cc.waitForResourceDeletion(ctx)
 			By("Create new cluster with new PVs on the same host mount")
 			cluArgs.CleanupMetadata = true

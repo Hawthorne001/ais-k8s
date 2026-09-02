@@ -323,10 +323,18 @@ func (cc *clientCluster) destroyCleanupWithCallback(postDestroy func()) {
 	}
 }
 
+// destroyAndCleanup tears down a cluster that will not be redeployed.
 func (cc *clientCluster) destroyAndCleanup() {
+	// If the K8s cluster is ephemeral, skip waiting for the cluster-specific PVs to delete.
+	cc.destroy(!cc.aisCfg.Ephemeral)
+}
+
+// destroy removes the cluster, optionally deleting its PVs. Deleting them is required before
+// redeploying under the same cluster name, since a retained PV will not rebind to a recreated claim.
+func (cc *clientCluster) destroy(cleanupPVs bool) {
 	By(fmt.Sprintf("Destroying cluster %q", cc.cluster.Name))
 	cc.destroyClusterOnly()
-	if cc.pvs != nil {
+	if cleanupPVs && cc.pvs != nil {
 		tutils.DestroyPV(context.Background(), cc.k8sClient, cc.pvs)
 	}
 }
