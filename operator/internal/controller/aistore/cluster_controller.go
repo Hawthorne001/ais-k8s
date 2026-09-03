@@ -334,7 +334,7 @@ func (r *Reconciler) cleanupClusterRes(ctx context.Context, ais *aisv1.AIStore) 
 
 func (r *Reconciler) cleanupHost(ctx context.Context, ais *aisv1.AIStore) (reconcile.Result, error) {
 	// Get cleanup jobs
-	jobs, err := r.listCleanupJobs(ctx, ais.Namespace)
+	jobs, err := r.listCleanupJobs(ctx, ais)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

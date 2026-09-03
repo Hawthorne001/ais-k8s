@@ -8,6 +8,15 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ---
 
+## Unreleased
+
+### Changed
+
+- Host-cleanup Jobs now carry an owner reference to their `AIStore` CR, and only owned Jobs are waited on or deleted on cluster deletion.
+  - Avoid upgrading mid host-cleanup; pre-upgrade Jobs lack the owner reference and may need manual deletion.
+
+---
+
 ## v4.0.0
 
 ### Added 

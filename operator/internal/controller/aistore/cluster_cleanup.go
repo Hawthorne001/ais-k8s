@@ -15,7 +15,7 @@ import (
 	"github.com/ais-operator/internal/resources/aistore/proxy"
 	"github.com/ais-operator/internal/resources/aistore/target"
 	batchv1 "k8s.io/api/batch/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -44,10 +44,7 @@ func (r *Reconciler) createCleanupJobs(ctx context.Context, ais *aisv1.AIStore, 
 	logger.Info("Creating manual cleanup jobs", "nodes", nodes)
 	for _, nodeName := range nodes {
 		jobDef := cmn.NewCleanupJob(ais, nodeName)
-		if err := r.k8sClient.Create(ctx, jobDef); err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				continue
-			}
+		if _, err := r.k8sClient.CreateResourceIfNotExists(ctx, ais, jobDef); err != nil {
 			logger.Error(err, "Failed to create cleanup job", "name", jobDef.Name, "node", nodeName)
 			return err
 		}
@@ -55,15 +52,15 @@ func (r *Reconciler) createCleanupJobs(ctx context.Context, ais *aisv1.AIStore, 
 	return nil
 }
 
-func (r *Reconciler) listCleanupJobs(ctx context.Context, namespace string) (*batchv1.JobList, error) {
+func (r *Reconciler) listCleanupJobs(ctx context.Context, ais *aisv1.AIStore) (*batchv1.JobList, error) {
 	var cleanupJobs batchv1.JobList
-	jobs, err := r.k8sClient.ListJobsInNamespace(ctx, namespace)
+	jobs, err := r.k8sClient.ListJobsInNamespace(ctx, ais.Namespace)
 	if err != nil {
 		return nil, err
 	}
 	for i := range jobs.Items {
 		job := &jobs.Items[i]
-		if strings.HasPrefix(job.Name, cmn.CleanupPrefix) {
+		if strings.HasPrefix(job.Name, cmn.CleanupPrefix) && metav1.IsControlledBy(job, ais) {
 			cleanupJobs.Items = append(cleanupJobs.Items, *job)
 		}
 	}
