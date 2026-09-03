@@ -469,46 +469,23 @@ func TestValidateAuthProfile(t *testing.T) {
 
 	for _, tt := range []struct {
 		name       string
-		prev       *aisv1.AIStore
 		ais        *aisv1.AIStore
 		wantReview *authorizationv1.ResourceAttributes
 	}{
 		{
-			name: "no auth on create",
+			name: "no auth",
 			ais:  &aisv1.AIStore{},
 		},
 		{
-			name:       "profile ref on create",
+			name:       "profile ref",
 			ais:        profileAIS("prod-authn"),
 			wantReview: profileAttrs("prod-authn"),
-		},
-		{
-			name:       "profile ref added on update",
-			prev:       &aisv1.AIStore{},
-			ais:        profileAIS("prod-authn"),
-			wantReview: profileAttrs("prod-authn"),
-		},
-		{
-			name: "profile ref removed on update",
-			prev: profileAIS("prod-authn"),
-			ais:  &aisv1.AIStore{},
-		},
-		{
-			name: "unchanged profile ref on update",
-			prev: profileAIS("prod-authn"),
-			ais:  profileAIS("prod-authn"),
-		},
-		{
-			name:       "changed profile ref on update",
-			prev:       profileAIS("prod-authn"),
-			ais:        profileAIS("staging-authn"),
-			wantReview: profileAttrs("staging-authn"),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 			webhook, reviews := newSARWebhook(t, true, profileObjs(tt.ais)...)
-			g.Expect(webhook.validateAuthProfile(ctx, tt.prev, tt.ais)).To(Succeed())
+			g.Expect(webhook.validateAuthProfile(ctx, tt.ais)).To(Succeed())
 			if tt.wantReview == nil {
 				g.Expect(*reviews).To(BeEmpty())
 				return
@@ -521,7 +498,7 @@ func TestValidateAuthProfile(t *testing.T) {
 	t.Run("profile ref is rejected when unauthorized", func(t *testing.T) {
 		g := NewWithT(t)
 		webhook, reviews := newSARWebhook(t, false)
-		err := webhook.validateAuthProfile(ctx, nil, profileAIS("prod-authn"))
+		err := webhook.validateAuthProfile(ctx, profileAIS("prod-authn"))
 		g.Expect(*reviews).To(HaveLen(1))
 		g.Expect((*reviews)[0].Spec.ResourceAttributes).To(Equal(profileAttrs("prod-authn")))
 		g.Expect(apierrors.IsInvalid(err)).To(BeTrue())

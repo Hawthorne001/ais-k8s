@@ -118,23 +118,16 @@ func (aisw *AIStoreWebhook) validateSpec(ctx context.Context, prev, ais *aisv1.A
 		return allWarnings, err
 	}
 
-	err = aisw.validateAuthProfile(ctx, prev, ais)
+	err = aisw.validateAuthProfile(ctx, ais)
 	return allWarnings, err
 }
 
 // validateAuthProfile checks user access to spec.auth.profileRef:
-// requires "use" on the referenced AIStoreAuthProfile, checked on every create and update when changed
-func (aisw *AIStoreWebhook) validateAuthProfile(ctx context.Context, prev, ais *aisv1.AIStore) error {
+// requires "use" on the referenced AIStoreAuthProfile
+func (aisw *AIStoreWebhook) validateAuthProfile(ctx context.Context, ais *aisv1.AIStore) error {
 	ref := ais.GetAuthProfileRef()
 	if ref == nil {
 		return nil
-	}
-	if prev != nil {
-		prevRef := prev.GetAuthProfileRef()
-		// Skip SubjectAccessReview if the reference is unchanged
-		if prevRef != nil && prevRef.Name == ref.Name {
-			return nil
-		}
 	}
 	path := field.NewPath("spec", "auth", "profileRef")
 	err := aisw.authorize(ctx, ais, "use", path,
