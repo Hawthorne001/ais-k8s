@@ -12,14 +12,17 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ### Added 
 
-- `AIS_CLUSTER_NAME` now provided as an environment variable to all AIS pods, set to the AIStore resource name. 
-- `externalAccess.loadBalancer.port` to specify the port for proxy LoadBalancer services used for external access. 
-  - Note that customizing the port for target LB services is not yet supported, because proxies redirect requests to the target's public port. 
-- Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth` options.
+- `AIS_CLUSTER_NAME` as an environment variable to all AIS pods, set to the AIStore resource name. 
 - `spec.configToUpdate.auth.oidc.jwks_cache` to tune JWKS cache refresh intervals.
+- All `spec.configToUpdate` fields included in [AIStore v5.0.0](https://github.com/NVIDIA/aistore/releases/tag/v1.5.0).
+- `externalAccess.loadBalancer.port` to specify the port for proxy LoadBalancer services used for external access. 
+ - Note that customizing the port for target LB services is not yet supported, because proxies redirect requests to the target's public port. 
+- Webhook and AIStore type validation ensures consistency between `spec.auth.profileRef` and `spec.configToUpdate.auth` options.
+
 
 - `AIStoreAuthProfile`
   - Webhook validation rejects requests with user info in `spec.serviceURL`
+
 
 - `AIStoreAuth`
   - Support for `spec.deployment.pod.annotations` to set custom annotations on the AuthN Deployment pod template.
@@ -27,15 +30,29 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 ### Changed
 
-- `spec.authNSecretName` is no longer used to determine operator client token inclusion. This is now driven only by `spec.auth.profileRef`.
-- OAuth password-grant tokens are no longer treated as expired when the provider omits `expires_in`.
-- Tokens with a lifetime at or below the default 5 minute refresh margin are no longer refreshed on every reconcile.
-- Clarified client config logging for authentication service and AIS API requests.
 - Clusters created before v3.3.0 **will roll proxy and target pods once on upgrade** to apply the `app.kubernetes.io/managed-by` label.
 - Fixed operator AIS API URL construction with IPv6 hosts, affecting apiMode: public and proxy LoadBalancer access.
-- Updated all `spec.configToUpdate` fields to match AIStore v5.0.0 config.
+- Updated all existing `spec.configToUpdate` fields to match AIStore v5.0.0 config.
 
-- Port mapping changes
+
+- **Authentication**
+  - `spec.authNSecretName` is no longer used to determine operator client token inclusion. 
+    - This is now driven only by `spec.auth.profileRef`.
+  - OAuth password-grant tokens are no longer treated as expired when the provider omits `expires_in`.
+  - Tokens with a lifetime at or below the default 5 minute refresh margin are no longer refreshed on every reconcile.
+  - Clarified client config logging for authentication service and AIS API requests.
+    - `auth.enabled` is deprecated in favor of `auth.client_auth_required`.
+  - `auth.cluster_key` is deprecated in favor of `auth.intra_cluster`.
+  - Setting `spec.authNSecretName` sets the AIStore auth config to use the HMAC signing method when no signing method is configured.
+    - This sets `spec.configToUpdate.auth.signature.method: HMAC`
+    - The webhook now rejects `spec.authNSecretName` alongside allowed OIDC issuers in `spec.configToUpdate`.
+  - Setting `spec.auth` to configure operator token provisioning no longer implicitly enables AIS client auth.
+  - No spec option outside of `configToUpdate` enables AIStore to enforce valid tokens with all client requests.
+    - Set `spec.configToUpdate.auth.enabled` for AIStore versions before v5.0.0.
+    - Set `spec.configToUpdate.auth.client_auth_required` for AIStore versions v5.0.0 and newer.
+
+
+- **Port mapping**
   - The `containerPort` set for both proxies and targets is now derived from `portPublic` rather than `servicePort`. This matches the port written to the AIS config and listened to by the AIS process.
   - Port values now receive the following defaults if not provided in spec:
     - Proxy `portPublic: 51080`
@@ -45,17 +62,6 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
     - `servicePort` -- None, previous callers use `externalAccess.loadBalancer.port` or `portPublic`
     - The types of each of these in `ServiceSpec` are now pointers, which is a breaking change for any direct Go importers.
   - When using `targetSpec.hostNetwork`, setting `targetSpec.hostPort` to a value other than `targetSpec.portPublic` (or the default) is invalid and is now rejected by the webhook.
-
-- Changes to AIStore client authentication config
-  - `auth.enabled` is deprecated in favor of `auth.client_auth_required`.
-  - `auth.cluster_key` is deprecated in favor of `auth.intra_cluster`.
-  - Setting `spec.authNSecretName` sets the AIStore auth config to use the HMAC signing method when no signing method is configured.
-    - This sets `spec.configToUpdate.auth.signature.method: HMAC`
-    - The webhook now rejects `spec.authNSecretName` alongside allowed OIDC issuers in `spec.configToUpdate`.
-  - Setting `spec.auth` to configure operator token provisioning no longer implicitly enables AIS client auth.
-  - No spec option outside of `configToUpdate` enables AIStore to enforce valid tokens with all client requests.  
-    - Set `spec.configToUpdate.auth.enabled` for AIStore versions before v5.0.0.
-    - Set `spec.configToUpdate.auth.client_auth_required` for AIStore versions v5.0.0 and newer.
 
 ### Deprecated
 
