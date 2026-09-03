@@ -48,7 +48,7 @@ type (
 		k8sClient *aisclient.K8sClient
 		tlsOpts   AISClientTLSOpts
 		authN     *AuthNClient
-		clientMap map[string]AIStoreClientInterface
+		clientMap map[string]*AIStoreClient
 	}
 )
 
@@ -57,40 +57,31 @@ func NewAISClientManager(k8sClient *aisclient.K8sClient, tlsOpts AISClientTLSOpt
 		k8sClient: k8sClient,
 		tlsOpts:   tlsOpts,
 		authN:     NewAuthNClient(k8sClient),
-		clientMap: make(map[string]AIStoreClientInterface, 16),
+		clientMap: make(map[string]*AIStoreClient, 16),
 	}
 }
 
-// GetClient gets an AIStoreClientInterface for making request to the given AIS cluster.
+// GetClient gets an AIStoreClientInterface for making requests to the given AIS cluster.
 // Gets a cached object if exists, else creates a new one.
 // If the token is expired, refreshes it in-place.
 func (m *AISClientManager) GetClient(ctx context.Context,
 	ais *aisv1.AIStore,
-) (client AIStoreClientInterface, err error) {
+) (AIStoreClientInterface, error) {
 	logger := logf.FromContext(ctx).WithValues("cluster", ais.NamespacedName().String())
 	m.mu.RLock()
 	client, exists := m.clientMap[ais.NamespacedName().String()]
 	m.mu.RUnlock()
 
-	// If client exists and token is expired, refresh it
 	if exists {
-		if concreteClient, ok := client.(*AIStoreClient); ok && concreteClient.isTokenExpired() {
-			tokenInfo, err := m.authN.getAdminToken(ctx, ais)
-			if err != nil {
-				logger.Error(err, "Failed to get admin token for refresh")
-				return nil, err
-			}
-
-			hasExpiration := tokenInfo != nil && !tokenInfo.ExpiresAt.IsZero()
-			logger.Info("Refreshing expired token", "tokenExpires", hasExpiration)
-			concreteClient.refreshToken(tokenInfo)
+		if err := m.ensureValidToken(ctx, ais, client); err != nil {
+			return nil, err
 		}
 	}
 
 	url, err := m.getAISAPIEndpoint(ctx, ais)
 	if err != nil {
 		logger.Error(err, "Failed to get AIS API parameters")
-		return
+		return nil, err
 	}
 
 	// Check if the client params are valid
@@ -115,7 +106,28 @@ func (m *AISClientManager) GetClient(ctx context.Context,
 	m.mu.Lock()
 	m.clientMap[ais.NamespacedName().String()] = client
 	m.mu.Unlock()
-	return
+	return client, nil
+}
+
+func (m *AISClientManager) ensureValidToken(ctx context.Context, ais *aisv1.AIStore, client *AIStoreClient) error {
+	if !client.isTokenExpired() {
+		return nil
+	}
+	profile := "none"
+	if profileRef := ais.GetAuthProfileRef(); profileRef != nil {
+		profile = profileRef.Name
+	}
+	logger := logf.FromContext(ctx).WithValues("cluster", ais.NamespacedName().String(), "profile", profile)
+	tokenInfo, err := m.authN.getAdminToken(ctx, ais)
+	if err != nil {
+		logger.Error(err, "Failed to get admin token for refresh")
+		return err
+	}
+
+	hasExpiration := tokenInfo != nil && !tokenInfo.ExpiresAt.IsZero()
+	logger.Info("Refreshing expired token", "tokenExpires", hasExpiration)
+	client.refreshToken(tokenInfo)
+	return nil
 }
 
 func logNewClient(logger logr.Logger, tokenInfo *TokenInfo, tlsConf *tls.Config, url string) {

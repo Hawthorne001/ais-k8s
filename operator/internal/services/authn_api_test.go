@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/aistore/api"
+	authv1alpha1 "github.com/ais-operator/api/aisauth/v1alpha1"
 	aisv1 "github.com/ais-operator/api/aistore/v1beta1"
 	"github.com/ais-operator/internal/opinfo"
 	. "github.com/onsi/ginkgo/v2"
@@ -72,7 +73,7 @@ var _ = Describe("Subject token", func() {
 		})
 
 		It("should mint a token for the operator ServiceAccount", func() {
-			token, err := authN.mintSubjectToken(context.Background(), "")
+			token, err := authN.mintSubjectToken(context.Background(), "ais-authn")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(token).NotTo(BeEmpty())
 			Expect(minted).To(Equal(client.ObjectKey{Namespace: operatorNamespace, Name: operatorSA}))
@@ -85,11 +86,39 @@ var _ = Describe("Subject token", func() {
 			Expect(request).NotTo(BeNil())
 			Expect(request.Spec.Audiences).To(Equal([]string{"ais-authn"}))
 		})
+
+		It("should refuse to mint without an audience", func() {
+			_, err := authN.mintSubjectToken(context.Background(), "")
+			Expect(err).To(MatchError(ContainSubstring("audience is required")))
+			Expect(request).To(BeNil())
+		})
+
+		It("should exchange with the default audience when the profile sets none", func() {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"access_token":"exchanged","token_type":"Bearer",` +
+					`"issued_token_type":"urn:ietf:params:oauth:token-type:jwt"}`))
+			}))
+			defer server.Close()
+
+			conf := &authProfileConfig{profile: &authv1alpha1.AIStoreAuthProfile{
+				Spec: authv1alpha1.AIStoreAuthProfileSpec{
+					TokenExchange: &authv1alpha1.AuthProfileTokenExchange{},
+				},
+			}}
+			params := &api.BaseParams{Client: server.Client(), URL: server.URL}
+
+			tokenInfo, err := authN.getTokenViaExchange(context.Background(), params, &aisv1.AIStore{}, conf)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenInfo.Token).To(Equal("exchanged"))
+			Expect(request).NotTo(BeNil())
+			Expect(request.Spec.Audiences).To(Equal([]string{DefaultSubjectTokenAudience}))
+		})
 	})
 
 	It("should fail when the operator ServiceAccount does not exist", func() {
 		authN := NewAuthNClient(NewFakeK8sClient())
-		_, err := authN.mintSubjectToken(context.Background(), "")
+		_, err := authN.mintSubjectToken(context.Background(), "ais-authn")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to mint token"))
 	})

@@ -32,6 +32,9 @@ import (
 // Token exchange defaults
 const (
 	DefaultTokenExchangeEndpoint = "/token"
+	// DefaultSubjectTokenAudience is a stand-in for empty audiences to tell the API server not to fill in its own URL.
+	// It must not match any value in the K8s cluster's --api-audiences, but can otherwise be any string.
+	DefaultSubjectTokenAudience = "ais-auth-svc" //nolint:gosec // not a credential
 
 	// subjectTokenExpiration is the lifetime requested for minted subject tokens.
 	// The API server rejects anything shorter than 10 minutes.
@@ -387,7 +390,17 @@ func (c *AuthNClient) getTokenViaExchange(ctx context.Context, bp *api.BaseParam
 
 	endpoint := conf.GetTokenExchangeEndpoint()
 
-	sourceToken, err := c.mintSubjectToken(ctx, conf.GetSubjectTokenAudience())
+	aud := conf.GetSubjectTokenAudience()
+	if aud == "" {
+		logger.Info("WARNING: no subject token audience provided for exchange, using default audience", "audience", DefaultSubjectTokenAudience)
+		// An empty audience is filled in by the K8s API server to allow requests to the API server itself.
+		// This default is provided to ensure the token the operator mints can ONLY be used with an auth service
+		// that does not validate audiences.
+		//
+		// If the auth service DOES validate audience, the required audience must be added to the AIStoreAuthProfile.
+		aud = DefaultSubjectTokenAudience
+	}
+	subjectToken, err := c.mintSubjectToken(ctx, aud)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +409,7 @@ func (c *AuthNClient) getTokenViaExchange(ctx context.Context, bp *api.BaseParam
 	// If not configured, we pass an empty slice (don't request audiences if cluster doesn't require them)
 	audiences := ais.GetRequiredAudiences()
 
-	tokenInfo, err := exchangeTokenWithAuthSvc(ctx, bp, sourceToken, endpoint, audiences)
+	tokenInfo, err := exchangeTokenWithAuthSvc(ctx, bp, subjectToken, endpoint, audiences)
 	if err != nil {
 		logger.Error(err, "Failed to exchange token with auth service", "audiences", audiences)
 		return nil, err
@@ -409,10 +422,13 @@ func (c *AuthNClient) getTokenViaExchange(ctx context.Context, bp *api.BaseParam
 // mintSubjectToken mints a short-lived token for the operator's ServiceAccount bound to the configured audience.
 func (c *AuthNClient) mintSubjectToken(ctx context.Context, audience string) (string, error) {
 	logger := logf.FromContext(ctx)
+	if audience == "" {
+		return "", errors.New("audience is required to mint subject token")
+	}
 	sa := opinfo.ServiceAccount()
 	req, err := c.k8sClient.CreateServiceAccountToken(ctx, sa, audience, subjectTokenExpiration)
 	if err != nil {
-		logger.Error(err, "Failed to mint source token", "serviceAccount", sa.String(), "audience", audience)
+		logger.Error(err, "Failed to mint subject token", "serviceAccount", sa.String(), "audience", audience)
 		return "", fmt.Errorf("failed to mint token for ServiceAccount %s with audience %q: %w", sa, audience, err)
 	}
 	logger.V(2).Info("Minted service account token", "serviceAccount", sa.String(), "audience", audience,
@@ -420,16 +436,16 @@ func (c *AuthNClient) mintSubjectToken(ctx context.Context, audience string) (st
 	return req.Status.Token, nil
 }
 
-// exchangeTokenWithAuthSvc exchanges a source token (e.g., K8s SA token) for an AIS JWT token
+// exchangeTokenWithAuthSvc exchanges a subject token (e.g., K8s SA token) for an AIS JWT token
 // Implements RFC 8693 OAuth 2.0 Token Exchange specification
 // See: https://datatracker.ietf.org/doc/html/rfc8693
-func exchangeTokenWithAuthSvc(ctx context.Context, params *api.BaseParams, sourceToken, endpoint string, audiences []string) (*TokenInfo, error) {
+func exchangeTokenWithAuthSvc(ctx context.Context, params *api.BaseParams, subjectToken, endpoint string, audiences []string) (*TokenInfo, error) {
 	logger := logf.FromContext(ctx)
 
 	// RFC 8693 Section 2.1 - Request format (form-encoded)
 	formData := url.Values{}
 	formData.Set("grant_type", RFC8693GrantType)                   // REQUIRED
-	formData.Set("subject_token", sourceToken)                     // REQUIRED
+	formData.Set("subject_token", subjectToken)                    // REQUIRED
 	formData.Set("subject_token_type", RFC8693SubjectTokenTypeJWT) // REQUIRED
 	// RFC 8693 Section 2.1 - audience parameter (OPTIONAL but recommended)
 	// Specifies the target audience(s) for the issued token
