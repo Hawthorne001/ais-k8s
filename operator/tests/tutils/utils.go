@@ -69,8 +69,8 @@ func CleanupOldTestClusters(ctx context.Context, c *aisclient.K8sClient) {
 	}
 }
 
-// Statically created hostPath volumes have no reclaim policy to clean up the actual files on host, so this creates a
-// job to mount the host path and delete any files created by the test suite
+// CleanPVHostPath creates a job to mount the host path and delete any files created by the test suite
+// Statically created hostPath volumes have no reclaim policy to clean up the actual files on host
 func CleanPVHostPath(ctx context.Context, k8sClient *aisclient.K8sClient, storageHostPath string) {
 	if storageHostPath == "" {
 		return

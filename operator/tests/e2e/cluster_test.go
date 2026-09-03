@@ -71,26 +71,24 @@ var _ = Describe("Run Controller", func() {
 		})
 	})
 
-	Context("Deploy and Destroy cluster", func() {
+	Context("Deploy and Destroy cluster with externalLB", func() {
+		It("Should successfully create an AIS Cluster with required K8s objects", func(ctx context.Context) {
+			cluArgs.ProxyExternalAccess = true
+			cluArgs.TargetExternalAccess = true
+			cc := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
+			cc.createAndDestroyWithWait(ctx)
+		})
 
-		Context("with externalLB", func() {
-			It("Should successfully create an AIS Cluster with required K8s objects", func(ctx context.Context) {
-				cluArgs.ProxyExternalAccess = true
-				cluArgs.TargetExternalAccess = true
-				cc := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-				cc.createAndDestroyWithWait(ctx)
-			})
-			It("Should successfully create a hetero-sized AIS Cluster", func(ctx context.Context) {
-				// If we have multiple targets on the same node we need a way to reach each of them
-				// Require an LB since we can't specify different host ports for each target in a statefulset
-				cluArgs.TargetSize = 2
-				cluArgs.ProxySize = 1
-				cluArgs.DisableTargetAntiAffinity = true
-				cluArgs.ProxyExternalAccess = true
-				cluArgs.TargetExternalAccess = true
-				cc := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-				cc.createAndDestroyWithWait(ctx)
-			})
+		It("Should successfully create a hetero-sized AIS Cluster", func(ctx context.Context) {
+			// If we have multiple targets on the same node we need a way to reach each of them
+			// Require an LB since we can't specify different host ports for each target in a statefulset
+			cluArgs.TargetSize = 2
+			cluArgs.ProxySize = 1
+			cluArgs.DisableTargetAntiAffinity = true
+			cluArgs.ProxyExternalAccess = true
+			cluArgs.TargetExternalAccess = true
+			cc := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
+			cc.createAndDestroyWithWait(ctx)
 		})
 	})
 
@@ -155,46 +153,41 @@ var _ = Describe("Run Controller", func() {
 
 	Context("Multiple Deployments", func() {
 		// Running multiple clusters in the same cluster
-		It("Should allow running two clusters in the same namespace", func(ctx context.Context) {
-			cc1 := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-			cluArgs2 := tutils.NewClusterSpecArgs(AISTestCfg, WorkerCfg.TestNSName)
-			cc2 := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs2)
-			cc2.applyHostPortOffset(int32(5))
-			defer func() {
-				cc1.printLogs(ctx)
-				cc2.printLogs(ctx)
-				cc2.destroyAndCleanup()
-				cc1.destroyAndCleanup()
-			}()
-			clusters := []*clientCluster{cc1, cc2}
-			createClusters(ctx, clusters)
-			cc1.waitForReadyCluster(ctx)
-			cc2.waitForReadyCluster(ctx)
-		})
-
-		It("Should allow two clusters with same name in different namespaces", func(ctx context.Context) {
-			otherCluArgs := tutils.NewClusterSpecArgs(AISTestCfg, WorkerCfg.TestNSOtherName)
-			newNS, nsExists := tutils.CreateNSIfNotExists(ctx, WorkerCfg.K8sClient, WorkerCfg.TestNSOtherName)
-			if !nsExists {
+		for _, variant := range []struct {
+			text    string
+			otherNS bool
+		}{
+			{text: "Should allow running two clusters in the same namespace"},
+			{text: "Should allow two clusters with same name in different namespaces", otherNS: true},
+		} {
+			It(variant.text, func(ctx context.Context) {
+				cluArgs2 := tutils.NewClusterSpecArgs(AISTestCfg, WorkerCfg.TestNSName)
+				if variant.otherNS {
+					namespace := WorkerCfg.TestNSOtherName
+					cluArgs2.Namespace = namespace
+					cluArgs2.Name = cluArgs.Name
+					newNS, nsExists := tutils.CreateNSIfNotExists(ctx, WorkerCfg.K8sClient, namespace)
+					if !nsExists {
+						defer func() {
+							_, err := WorkerCfg.K8sClient.DeleteResourceIfExists(ctx, newNS)
+							Expect(err).To(BeNil())
+						}()
+					}
+				}
+				cc1 := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
+				cc2 := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs2)
+				cc2.applyHostPortOffset(int32(5))
 				defer func() {
-					_, err := WorkerCfg.K8sClient.DeleteResourceIfExists(ctx, newNS)
-					Expect(err).To(BeNil())
+					cc1.printLogs(ctx)
+					cc2.printLogs(ctx)
+					cc2.destroyAndCleanup()
+					cc1.destroyAndCleanup()
 				}()
-			}
-			cc1 := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-			cc2 := newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, otherCluArgs)
-			cc2.applyHostPortOffset(int32(5))
-			defer func() {
-				cc1.printLogs(ctx)
-				cc2.printLogs(ctx)
-				cc2.destroyAndCleanup()
-				cc1.destroyAndCleanup()
-			}()
-			clusters := []*clientCluster{cc1, cc2}
-			createClusters(ctx, clusters)
-			cc1.waitForReadyCluster(ctx)
-			cc2.waitForReadyCluster(ctx)
-		})
+				createClusters(ctx, []*clientCluster{cc1, cc2})
+				cc1.waitForReadyCluster(ctx)
+				cc2.waitForReadyCluster(ctx)
+			})
+		}
 	})
 
 	Context("Upgrade existing cluster", func() {
@@ -293,89 +286,71 @@ var _ = Describe("Run Controller", func() {
 		})
 	})
 
-	Context("Scale without LB", Ordered, func() {
-		var cc *clientCluster
+	for _, variant := range []struct {
+		name        string
+		configure   func(args *tutils.ClusterSpecArgs)
+		checkPDB    bool
+		targetsOnly bool
+	}{
+		{
+			name:        "Scale without LB",
+			targetsOnly: true,
+		},
+		{
+			name: "Scale with LB",
+			configure: func(args *tutils.ClusterSpecArgs) {
+				args.ProxyExternalAccess = true
+				args.TargetExternalAccess = true
+			},
+		},
+		{
+			name:      "Scale with PDB",
+			configure: func(args *tutils.ClusterSpecArgs) { args.EnableTargetPDB = true },
+			checkPDB:  true,
+		},
+	} {
+		Context(variant.name, Ordered, func() {
+			var cc *clientCluster
 
-		BeforeAll(func(ctx context.Context) {
-			cluArgs.MaxTargets = 2
-			cc = newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-			cc.create(ctx)
+			BeforeAll(func(ctx context.Context) {
+				cluArgs.MaxTargets = 2
+				if variant.configure != nil {
+					variant.configure(cluArgs)
+				}
+				cc = newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
+				cc.create(ctx)
+			})
+
+			AfterAll(func(ctx context.Context) {
+				cc.printLogs(ctx)
+				cc.destroyAndCleanup()
+			})
+
+			if variant.checkPDB {
+				It("Should have target PDB", func(ctx context.Context) {
+					cc.verifyTargetPDBExists(ctx)
+				})
+			}
+
+			It("Should be able to scale-up existing cluster", func(ctx context.Context) {
+				cc.scale(ctx, false, 1)
+			})
+
+			It("Should be able to scale-down existing cluster", func(ctx context.Context) {
+				cc.scale(ctx, false, -1)
+			})
+
+			if variant.targetsOnly {
+				It("Should be able to scale-up targets only", func(ctx context.Context) {
+					cc.scale(ctx, true, 1)
+				})
+
+				It("Should be able to scale-down targets only", func(ctx context.Context) {
+					cc.scale(ctx, true, -1)
+				})
+			}
 		})
-
-		AfterAll(func(ctx context.Context) {
-			cc.printLogs(ctx)
-			cc.destroyAndCleanup()
-		})
-
-		It("Should be able to scale-up existing cluster", func(ctx context.Context) {
-			cc.scale(ctx, false, 1)
-		})
-
-		It("Should be able to scale-down existing cluster", func(ctx context.Context) {
-			cc.scale(ctx, false, -1)
-		})
-
-		It("Should be able to scale-up targets only", func(ctx context.Context) {
-			cc.scale(ctx, true, 1)
-		})
-
-		It("Should be able to scale-down targets only", func(ctx context.Context) {
-			cc.scale(ctx, true, -1)
-		})
-	})
-
-	Context("Scale with LB", Ordered, func() {
-		var cc *clientCluster
-
-		BeforeAll(func(ctx context.Context) {
-			cluArgs.ProxyExternalAccess = true
-			cluArgs.TargetExternalAccess = true
-			cluArgs.MaxTargets = 2
-			cc = newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-			cc.create(ctx)
-		})
-
-		AfterAll(func(ctx context.Context) {
-			cc.printLogs(ctx)
-			cc.destroyAndCleanup()
-		})
-
-		It("Should be able to scale-up existing cluster", func(ctx context.Context) {
-			cc.scale(ctx, false, 1)
-		})
-
-		It("Should be able to scale-down existing cluster", func(ctx context.Context) {
-			cc.scale(ctx, false, -1)
-		})
-	})
-
-	Context("Scale with PDB", Ordered, func() {
-		var cc *clientCluster
-
-		BeforeAll(func(ctx context.Context) {
-			cluArgs.EnableTargetPDB = true
-			cluArgs.MaxTargets = 2
-			cc = newClientCluster(ctx, AISTestCfg, WorkerCfg.K8sClient, cluArgs)
-			cc.create(ctx)
-		})
-
-		AfterAll(func(ctx context.Context) {
-			cc.printLogs(ctx)
-			cc.destroyAndCleanup()
-		})
-
-		It("Should have target PDB", func(ctx context.Context) {
-			cc.verifyTargetPDBExists(ctx)
-		})
-
-		It("Should be able to scale-up existing cluster", func(ctx context.Context) {
-			cc.scale(ctx, false, 1)
-		})
-
-		It("Should be able to scale-down existing cluster", func(ctx context.Context) {
-			cc.scale(ctx, false, -1)
-		})
-	})
+	}
 
 	Context("Scale error recovery", func() {
 		It("Should allow reverting a broken scale-up", func(ctx context.Context) {
