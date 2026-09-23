@@ -24,6 +24,7 @@ We structure this changelog in accordance with [Keep a Changelog](https://keepac
 
 - `AIStoreAuth`
   - All user-provided secret references must pass a SubjectAccessReview.
+- Cleanup Jobs now reference a pinned `ais-operator-helper:v1.0.0` image, instead of the unversioned `latest` tag.
 
 ---
 

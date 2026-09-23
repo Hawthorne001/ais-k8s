@@ -17,6 +17,8 @@ import (
 
 const CleanupPrefix = "cleanup"
 
+const cleanupHelperImage = "docker.io/aistorage/ais-operator-helper:v1.0.0"
+
 // NewCleanupJob creates a cleanup job for a specific node
 func NewCleanupJob(ais *aisv1.AIStore, nodeName string) *batchv1.Job {
 	ttl := int32(0) // delete the pod as soon as it is completed
@@ -68,7 +70,7 @@ func createContainerSpec(stateDir string) []corev1.Container {
 	return []corev1.Container{
 		{
 			Name:    "cleanup",
-			Image:   "docker.io/aistorage/ais-operator-helper:latest",
+			Image:   cleanupHelperImage,
 			Command: []string{"/cleanup-helper", "-dir=" + stateDir},
 			VolumeMounts: []corev1.VolumeMount{
 				{
